@@ -11,7 +11,7 @@ import {
 } from "@xyflow/react";
 
 import dagre from "@dagrejs/dagre";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { samplePeople, sampleRelationships } from "@/data/sampleFamily";
 
@@ -25,6 +25,9 @@ const nodeTypes = {
 
 const NODE_WIDTH = 220;
 const NODE_HEIGHT = 96;
+const DEFAULT_EGO_ID = samplePeople[0]?.id ?? "";
+
+const peopleById = new Map(samplePeople.map((person) => [person.id, person]));
 
 function fullName(person: (typeof samplePeople)[number]) {
   return `${person.firstName} ${person.surname}`;
@@ -105,11 +108,45 @@ function buildFlowElements(egoId: string): {
 }
 
 function FlowCanvas({ egoId }: { egoId: string }) {
-  const initialElements = useMemo(() => buildFlowElements(egoId), [egoId]);
+  // Capture the initial layout once. Subsequent ego changes update node data
+  // without replacing the nodes, so dragged positions and viewport state stay
+  // intact.
+  const [initialElements] = useState(() => buildFlowElements(egoId));
 
-  const [nodes, , onNodesChange] = useNodesState(initialElements.nodes);
+  const [nodes, setNodes, onNodesChange] = useNodesState(
+    initialElements.nodes,
+  );
 
   const [edges, , onEdgesChange] = useEdgesState(initialElements.edges);
+
+  useEffect(() => {
+    setNodes((currentNodes) =>
+      currentNodes.map((node) => {
+        const person = peopleById.get(node.id);
+
+        if (!person) return node;
+
+        const relation = resolveKinship(
+          egoId,
+          person.id,
+          samplePeople,
+          sampleRelationships,
+        );
+
+        const data: PersonNodeData = {
+          name: fullName(person),
+          relationship: relation.title,
+          isEgo: person.id === egoId,
+          photoUrl: person.photoUrl,
+        };
+
+        return {
+          ...node,
+          data,
+        };
+      }),
+    );
+  }, [egoId, setNodes]);
 
   return (
     <ReactFlow
@@ -127,7 +164,7 @@ function FlowCanvas({ egoId }: { egoId: string }) {
 }
 
 export default function FamilyMap() {
-  const [egoId, setEgoId] = useState("tapiwa");
+  const [egoId, setEgoId] = useState(DEFAULT_EGO_ID);
 
   return (
     <div className="flex h-full flex-col">
@@ -164,13 +201,7 @@ export default function FamilyMap() {
       </div>
 
       <div className="min-h-0 flex-1">
-        {/*
-          key deliberately remounts the canvas
-          whenever Ego changes.
-
-          Later we'll preserve positions properly.
-        */}
-        <FlowCanvas key={egoId} egoId={egoId} />
+        <FlowCanvas egoId={egoId} />
       </div>
     </div>
   );

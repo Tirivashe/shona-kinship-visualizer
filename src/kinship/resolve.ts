@@ -7,6 +7,7 @@ import type {
 } from "@/types/family";
 
 import { findRelationshipPaths } from "./graph";
+import { inferCanonicalKinship } from "./infer";
 
 interface RankedResult {
   priority: number;
@@ -189,8 +190,9 @@ function resolvePath(
   path: RelationshipPath,
   ego: Person,
   target: Person,
+  canonicalSteps: PathStep[],
 ): RankedResult {
-  const { steps } = path;
+  const steps = canonicalSteps;
   const key = steps.join(">");
 
   if (steps.length === 0) {
@@ -246,11 +248,7 @@ function resolvePath(
   }
 
   // The guide assigns both Tsano and Tezvara to a wife's brother.
-  if (
-    steps.length === 2 &&
-    steps[0] === "wife" &&
-    brotherSteps.has(steps[1])
-  ) {
+  if (steps.length === 2 && steps[0] === "wife" && brotherSteps.has(steps[1])) {
     return contextual(
       path,
       "WIFES_BROTHER_CONTEXT_REQUIRED",
@@ -352,7 +350,6 @@ function resolvePath(
       "sibling",
     );
   }
-
   const isParallelCousin =
     steps.length === 3 &&
     childSteps.has(steps[2]) &&
@@ -433,13 +430,13 @@ function resolvePath(
     "mother>older_brother": {
       ruleId: "MATERNAL_UNCLE",
       title: "Sekuru",
-      description: "Your mother's brother.",
+      description: "Your mother's older brother.",
       priority: 850,
     },
     "mother>younger_brother": {
       ruleId: "MATERNAL_UNCLE",
       title: "Sekuru",
-      description: "Your mother's brother.",
+      description: "Your mother's younger brother.",
       priority: 850,
     },
     "mother>brother": {
@@ -484,6 +481,18 @@ function resolvePath(
       description: "Your child.",
       priority: 780,
     },
+    husband: {
+      ruleId: "HUSBAND",
+      title: "Murume",
+      description: "Your husband.",
+      priority: 900,
+    },
+    wife: {
+      ruleId: "WIFE",
+      title: "Mukadzi",
+      description: "Your wife.",
+      priority: 900,
+    },
   };
 
   const exactRule = exactRules[key];
@@ -509,7 +518,6 @@ function resolvePath(
       850,
     );
   }
-
   if (key === "mother>sister") {
     return ambiguous(
       path,
@@ -522,13 +530,7 @@ function resolvePath(
   }
 
   if (steps.length === 2 && steps.every((step) => childSteps.has(step))) {
-    return known(
-      path,
-      "GRANDCHILD",
-      "Muzukuru",
-      "Your grandchild.",
-      780,
-    );
+    return known(path, "GRANDCHILD", "Muzukuru", "Your grandchild.", 780);
   }
 
   if (steps.length === 3 && steps.every((step) => childSteps.has(step))) {
@@ -561,14 +563,13 @@ function resolvePath(
     priority: 0,
     result: {
       status: "unmapped",
-      title: steps.map((step) => readableStep[step]).join(" → "),
+      title: steps.map((step) => readableStep[step]).join("'s "),
       description:
         "The genealogical path is known, but the supplied guide does not define a Shona title for it.",
       path,
     },
   };
 }
-
 export function resolveKinship(
   egoId: string,
   targetId: string,
@@ -583,16 +584,12 @@ export function resolveKinship(
     return {
       status: "unrelated",
       title: "Unknown person",
-      description: "The ego or target person does not exist in the family data.",
+      description:
+        "The ego or target person does not exist in the family data.",
     };
   }
 
-  const paths = findRelationshipPaths(
-    egoId,
-    targetId,
-    people,
-    relationships,
-  );
+  const paths = findRelationshipPaths(egoId, targetId, people, relationships);
 
   if (paths.length === 0) {
     return {
@@ -601,15 +598,31 @@ export function resolveKinship(
       description: "No relationship path could be found.",
     };
   }
-
   const ranked = paths
-    .map((path) => resolvePath(path, ego, target))
+    .map((path) => {
+      const inference = inferCanonicalKinship(path, ego);
+      const rankedResult = resolvePath(
+        path,
+        ego,
+        target,
+        inference.canonicalSteps,
+      );
+
+      return {
+        ...rankedResult,
+        result: {
+          ...rankedResult.result,
+          canonicalSteps: inference.canonicalSteps,
+          derivation: inference.derivation,
+        },
+      };
+    })
     .sort((a, b) => b.priority - a.priority);
 
   const bestPriority = ranked[0].priority;
   const bestMatches = ranked.filter((match) => match.priority === bestPriority);
-  const distinctTitles = [...
-    new Set(bestMatches.map((match) => match.result.title)),
+  const distinctTitles = [
+    ...new Set(bestMatches.map((match) => match.result.title)),
   ];
 
   if (distinctTitles.length > 1) {

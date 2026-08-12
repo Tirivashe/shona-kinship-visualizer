@@ -10,6 +10,7 @@ export interface Person {
   dateOfDeath?: string;
   bio?: string;
   photoUrl?: string;
+  deceased?: boolean;
 }
 
 export type SiblingSeniority = "A_OLDER" | "B_OLDER" | "UNKNOWN";
@@ -77,4 +78,10 @@ export interface KinshipResult {
 
   /** Possible titles when the guide does not supply enough context to choose. */
   possibilities?: string[];
+
+  /** The culturally normalized path used for canonical title matching. */
+  canonicalSteps?: PathStep[];
+
+  /** Human-readable record of the equivalence rules used during inference. */
+  derivation?: string[];
 }
