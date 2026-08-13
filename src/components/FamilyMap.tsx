@@ -24,7 +24,7 @@ const nodeTypes = {
 };
 
 const NODE_WIDTH = 220;
-const NODE_HEIGHT = 96;
+const NODE_HEIGHT = 112;
 const DEFAULT_EGO_ID = samplePeople[0]?.id ?? "";
 
 const peopleById = new Map(samplePeople.map((person) => [person.id, person]));
@@ -56,6 +56,7 @@ function buildFlowElements(egoId: string): {
     const data: PersonNodeData = {
       name: fullName(person),
       relationship: relation.title,
+      socialTerm: relation.socialTerm,
       isEgo: person.id === egoId,
       photoUrl: person.photoUrl,
     };
@@ -145,6 +146,7 @@ function FlowCanvas({ egoId }: { egoId: string }) {
         const data: PersonNodeData = {
           name: fullName(person),
           relationship: relation.title,
+          socialTerm: relation.socialTerm,
           isEgo: person.id === egoId,
           photoUrl: person.photoUrl,
         };

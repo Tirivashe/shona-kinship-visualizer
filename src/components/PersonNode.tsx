@@ -4,6 +4,7 @@ import Image from "next/image";
 export type PersonNodeData = {
   name: string;
   relationship: string;
+  socialTerm?: string;
   isEgo: boolean;
   photoUrl?: string;
 };
@@ -65,6 +66,12 @@ export function PersonNode({ data }: NodeProps) {
           <div className="truncate font-semibold">{person.name}</div>
 
           <div className="text-sm text-neutral-500">{person.relationship}</div>
+
+          {person.socialTerm && (
+            <div className="text-xs text-neutral-400">
+              Social: {person.socialTerm}
+            </div>
+          )}
         </div>
       </div>
 

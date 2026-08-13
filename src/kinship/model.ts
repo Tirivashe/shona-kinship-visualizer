@@ -42,12 +42,21 @@ export interface TraversalResult {
 }
 
 export type KinshipStatus = "known" | "ambiguous" | "unmapped" | "unrelated";
+export type AffinalSocialTerm =
+  | "Vanyarikani"
+  | "Vasekedzani"
+  | "Vakaroorana";
 
 export interface KinshipResolution {
   status: KinshipStatus;
   title: string;
   description: string;
   ruleId?: string;
+  /** Alternative reference or address forms for the principal title. */
+  aliases?: string[];
+  /** Social protocol carried by an affinal relationship. */
+  socialTerm?: AffinalSocialTerm;
+  socialDescription?: string;
   possibilities?: string[];
   traversal?: TraversalResult;
   reducedPath?: KPath;

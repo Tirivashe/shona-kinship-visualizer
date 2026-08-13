@@ -27,8 +27,9 @@ older React demo records. New integrations should instantiate
 - `M.B.D -> Mainini` remains a structural exception.
 - `F.Z.(S|D)` is `Mwana` for a female ego and `Muzukuru` for a male ego,
   preserving the sex-dependent paternal-aunt cross-cousin distinction.
-- `(S|B|F.B.S).W -> Muroora` and `(D|Z|F.Z).H -> Mukuwasha` express
-  inward and outward clan alignment.
+- Affinal paths are projected over a reduced classificatory lineage rather
+  than matched as complete strings. A W edge from a clan-aligned man produces
+  `Muroora`; an H edge from a clan-aligned woman produces `Mukuwasha`.
 - `(B|Z).M -> M` promotes a traversed mother's branch to the matrilateral axis,
   allowing later `M.B.S*` rules to apply without enumerating full paths.
 - For a same-sex sibling, `(male ego: B | female ego: Z).(S|D)` reduces to
@@ -42,6 +43,45 @@ relatives to ego.
 
 Rules are finite algebraic patterns. Recursive lineage behavior is expressed
 with structural predicates, not a list of every possible path length.
+
+## Affinal projection and social protocol
+
+`AffinalProjector` treats a marriage as a directional alliance between a
+wife-giving line and a wife-receiving line. It finds the single marriage
+boundary, reduces only the consanguine segment on the other side, checks
+classificatory patrilineage membership, and projects the result using target
+sex and generation. This supports recursive cases such as a wife's paternal
+uncle or cousin without registering `W.F.B` or `W.F.B.S` as complete paths.
+
+The principal result is returned in `title`. Affinal results additionally
+return `socialTerm` and `socialDescription`:
+
+- `Vanyarikani` marks relationships governed primarily by respect, restraint,
+  and honorific address: `Tezvara`, `Vamwene`, `Ambuya`, `Mukuwasha`,
+  `Muroora`, and `Mukurungai`.
+- `Vasekedzani` marks reciprocal joking relationships, particularly `Muramu`
+  and the grandparent categories entered through a spouse.
+- `Vakaroorana` marks the reciprocal relationship between spouses.
+
+Reference variants remain aliases rather than competing principal titles. For
+example, a wife's mother resolves principally to `Ambuya`, with `Mbuyawasha`
+and `Ambuyawasha` as aliases. A husband's brother resolves principally to
+`Muramu`; seniority can supply `Babamukuru` or `Babamunini` as an alias while
+the social protocol remains `Vasekedzani`.
+
+The same projection covers a child's spouse and that in-law's family:
+
+- parents and parallel parent-equivalents resolve to `Mukurungai`;
+- a son-in-law's male sibling and parallel-cousin line remains `Mukuwasha`;
+- a daughter-in-law's female sibling and parallel-cousin line remains
+  `Muroora`, while males of that wife-giving line resolve to `Tezvara`;
+- children resolve through classificatory co-parenthood as `Muzukuru`;
+- piblings and cross-cousins without a narrower verified title retain the
+  explicit `Hama yeVakuwasha` or `Hama dzeMuroora` side classification.
+
+The projector intentionally stops at a second marriage boundary. Composing
+multiple independent alliances requires an explicit cultural composition law;
+silently treating them as one lineage would create false certainty.
 
 ## Classificatory parents
 

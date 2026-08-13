@@ -32,6 +32,7 @@ export class FamilyTreeGraph {
   private readonly peopleById: Map<string, Person>;
   private readonly adjacency = new Map<string, GraphEdge[]>();
   private readonly siblingAge = new Map<string, RelativeAge>();
+  private readonly parentsByChild = new Map<string, Set<string>>();
 
   constructor(
     people: readonly Person[],
@@ -40,7 +41,10 @@ export class FamilyTreeGraph {
   ) {
     this.peopleById = new Map(people.map((person) => [person.id, person]));
 
-    for (const person of people) this.adjacency.set(person.id, []);
+    for (const person of people) {
+      this.adjacency.set(person.id, []);
+      this.parentsByChild.set(person.id, new Set());
+    }
     for (const person of people) this.addSpouseEdges(person);
 
     const parentLinks: SupplementalParent[] = [
@@ -85,6 +89,18 @@ export class FamilyTreeGraph {
 
   getPerson(id: string): Person | undefined {
     return this.peopleById.get(id);
+  }
+
+  /**
+   * Whether two people belong to the same classificatory patrilineage.
+   * A woman remains a member of her father's line; her children acquire
+   * their own father-line membership. Multiple functional fathers are all
+   * honored because every parent edge is classificatory in this graph.
+   */
+  sharesPatrilineage(personAId: string, personBId: string): boolean {
+    const a = this.patrilineageAnchors(personAId);
+    if (a.size === 0) return false;
+    return [...this.patrilineageAnchors(personBId)].some((id) => a.has(id));
   }
 
   /** Return the target's age relative to the reference person. */
@@ -222,6 +238,8 @@ export class FamilyTreeGraph {
     const child = this.peopleById.get(childId);
     if (!parent || !child) return;
 
+    this.parentsByChild.get(childId)?.add(parentId);
+
     this.addEdge(
       child.id,
       parent.id,
@@ -257,5 +275,26 @@ export class FamilyTreeGraph {
     if (age === "older") return "younger";
     if (age === "younger") return "older";
     return age;
+  }
+
+  private patrilineageAnchors(personId: string): Set<string> {
+    const anchors = new Set<string>();
+    const queue = [personId];
+    const visited = new Set<string>();
+
+    for (let cursor = 0; cursor < queue.length; cursor += 1) {
+      const currentId = queue[cursor];
+      if (visited.has(currentId)) continue;
+      visited.add(currentId);
+
+      const current = this.peopleById.get(currentId);
+      if (current?.sex === "M") anchors.add(currentId);
+
+      for (const parentId of this.parentsByChild.get(currentId) ?? []) {
+        if (this.peopleById.get(parentId)?.sex === "M") queue.push(parentId);
+      }
+    }
+
+    return anchors;
   }
 }

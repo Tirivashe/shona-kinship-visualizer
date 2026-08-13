@@ -76,6 +76,10 @@ export interface KinshipResult {
   /** Alternative spellings or forms which are not the canonical display term. */
   aliases?: string[];
 
+  /** Affinal social protocol shown alongside the principal kinship term. */
+  socialTerm?: "Vanyarikani" | "Vasekedzani" | "Vakaroorana";
+  socialDescription?: string;
+
   /** Possible titles when the guide does not supply enough context to choose. */
   possibilities?: string[];
 

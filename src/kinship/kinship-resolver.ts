@@ -1,3 +1,4 @@
+import { AffinalProjector } from "./affinal-projector";
 import { FamilyTreeGraph } from "./family-tree-graph";
 import type {
   Context,
@@ -142,160 +143,6 @@ const rules: KinRule[] = [
     },
     explanation:
       "A classificatory parent's spouse preserves that parent's seniority class.",
-  },
-  {
-    id: "WIFES_BROTHER",
-    axis: "A",
-    priority: 960,
-    matches: (path, context) =>
-      context.egoSex === "M" && exact(["W", "B"])(path),
-    resolve: () =>
-      ambiguous(
-        "WIFES_BROTHER",
-        "Tsano / Tezvara",
-        "Your wife's brother; usage context determines the preferred title.",
-        ["Tsano", "Tezvara"],
-      ),
-    explanation: "The male wife-giver axis permits Tsano or Tezvara for W.B.",
-  },
-  {
-    id: "HUSBANDS_BROTHER",
-    axis: "A",
-    priority: 960,
-    matches: (path, context) =>
-      context.egoSex === "F" && exact(["H", "B"])(path),
-    resolve: (_path, context) => {
-      // Husband's brother relative age operates correctly off Ego vs Target logic
-      // (or more precisely, husband vs target, which usually aligns with standard relativeAge).
-      if (context.structuralRelativeAge === "older") {
-        return known(
-          "HUSBANDS_OLDER_BROTHER",
-          "Babamukuru",
-          "Your husband's older brother.",
-        );
-      }
-      if (context.structuralRelativeAge === "younger") {
-        return known(
-          "HUSBANDS_YOUNGER_BROTHER",
-          "Muramu",
-          "Your husband's younger brother.",
-        );
-      }
-      return ambiguous(
-        "HUSBANDS_BROTHER_AGE_REQUIRED",
-        "Babamukuru / Muramu",
-        "His seniority relative to your husband is required.",
-        ["Babamukuru", "Muramu"],
-      );
-    },
-    explanation:
-      "H.B is distinguished by whether the brother is older or younger.",
-  },
-  ...(
-    [
-      ["W.F", ["W", "F"], "Tezvara", "Your wife's father."],
-      ["W.M", ["W", "M"], "Mbuywasha", "Your wife's mother."],
-      ["W.Z", ["W", "Z"], "Muramu", "Your wife's sister."],
-      ["H.F", ["H", "F"], "Tezvara", "Your husband's father."],
-      ["H.M", ["H", "M"], "Vamwene", "Your husband's mother."],
-      ["H.Z", ["H", "Z"], "Vamwene", "Your husband's sister."],
-    ] as const
-  ).map(
-    ([id, path, title, description]): KinRule => ({
-      id: `AFFINAL_${id.replace(".", "_")}`,
-      axis: "A",
-      priority: 950,
-      matches: exact(path),
-      resolve: () =>
-        known(`AFFINAL_${id.replace(".", "_")}`, title, description),
-      explanation: `${id} resolves on the direct affinal axis.`,
-    }),
-  ),
-  {
-    id: "CO_PARENT_IN_LAW",
-    axis: "A",
-    priority: 945,
-    matches: (path) =>
-      path.length === 3 &&
-      ((path[0] === "D" && path[1] === "H") ||
-        (path[0] === "S" && path[1] === "W")) &&
-      (path[2] === "F" || path[2] === "M"),
-    resolve: (path) =>
-      known(
-        path[0] === "D" ? "SON_IN_LAW_PARENT" : "DAUGHTER_IN_LAW_PARENT",
-        "Mukurungai",
-        "A parent of your child's spouse; your co-parent-in-law.",
-      ),
-    explanation:
-      "Either parent across a child's marriage boundary is Mukurungai.",
-  },
-  {
-    id: "CHILD_IN_LAW_SIDE",
-    axis: "A",
-    priority: 935,
-    matches: (path) => {
-      if (path.length < 3) return false;
-      const sonInLawSide = path[0] === "D" && path[1] === "H";
-      const daughterInLawSide = path[0] === "S" && path[1] === "W";
-      return (
-        (sonInLawSide || daughterInLawSide) &&
-        path
-          .slice(2)
-          .every((step) => ["F", "M", "S", "D", "B", "Z"].includes(step))
-      );
-    },
-    resolve: (path) =>
-      path[0] === "D"
-        ? known(
-            "SON_IN_LAW_SIDE_RELATIVE",
-            "Hama yeVakuwasha",
-            "A blood relative on your son-in-law's side.",
-          )
-        : known(
-            "DAUGHTER_IN_LAW_SIDE_RELATIVE",
-            "Hama dzeMuroora",
-            "A blood relative on your daughter-in-law's side.",
-          ),
-    explanation:
-      "A blood suffix beyond a child's spouse remains on that spouse's affinal side.",
-  },
-  {
-    id: "WOMAN_MARRYING_IN",
-    axis: "A",
-    priority: 940,
-    matches: (path) => {
-      if (path.at(-1) !== "W") return false;
-      const stem = path.slice(0, -1);
-      return (
-        exact(["S"])(stem) || exact(["B"])(stem) || exact(["F", "B", "S"])(stem)
-      );
-    },
-    resolve: () =>
-      known(
-        "WOMAN_MARRYING_IN",
-        "Muroora",
-        "A woman marrying into ego's clan line.",
-      ),
-    explanation: "(S|B|F.B.S).W aligns inward as Muroora.",
-  },
-  {
-    id: "MAN_MARRYING_OUT",
-    axis: "A",
-    priority: 940,
-    matches: (path) => {
-      if (path.at(-1) !== "H") return false;
-      const stem = path.slice(0, -1);
-      return (
-        exact(["D"])(stem) || exact(["Z"])(stem) || exact(["F", "Z"])(stem)
-      );
-    },
-    resolve: () =>
-      known(
-        "MAN_MARRYING_OUT",
-        "Mukuwasha",
-        "A man marrying a daughter of ego's clan line.",
-      ),
-    explanation: "(D|Z|F.Z).H aligns outward as Mukuwasha.",
   },
   {
     id: "OPPOSITE_SEX_SIBLING_CHILD",
@@ -463,12 +310,14 @@ const rules: KinRule[] = [
 
 export class KinshipResolver {
   private readonly reducer: PathReducer;
+  private readonly affinalProjector: AffinalProjector;
 
   constructor(
     private readonly graph: FamilyTreeGraph,
     reducer = new PathReducer(),
   ) {
     this.reducer = reducer;
+    this.affinalProjector = new AffinalProjector(graph, reducer);
   }
 
   resolve(query: KinQuery): KinshipResolution {
@@ -516,15 +365,26 @@ export class KinshipResolver {
     const best = candidates.filter(
       (candidate) => (candidate.priority ?? 0) === bestPriority,
     );
-    const titles = [...new Set(best.map((candidate) => candidate.title))];
+    const categories = [
+      ...new Set(
+        best.map(
+          (candidate) =>
+            `${candidate.title}\u0000${candidate.socialTerm ?? ""}`,
+        ),
+      ),
+    ];
 
-    if (titles.length > 1) {
+    if (categories.length > 1) {
       return {
         status: "ambiguous",
         title: "Multiple valid relationships",
         description:
           "Equally short paths resolve to different Shona categories.",
-        possibilities: titles,
+        possibilities: best.map((candidate) =>
+          candidate.socialTerm
+            ? `${candidate.title} (${candidate.socialTerm})`
+            : candidate.title,
+        ),
         traversal: best[0].traversal,
       };
     }
@@ -538,6 +398,17 @@ export class KinshipResolver {
 
   private resolveTraversal(traversal: TraversalResult, context: Context) {
     const canonicalRule = this.bestRule(traversal.canonicalPath, context, 970);
+    const affinalProjection = canonicalRule
+      ? null
+      : this.affinalProjector.project(traversal, context);
+
+    if (affinalProjection) {
+      return {
+        ...affinalProjection,
+        traversal,
+      };
+    }
+
     const reduction = this.reducer.reduce(traversal.canonicalPath, context);
     const rule = canonicalRule ?? this.bestRule(reduction.reducedPath, context);
 
