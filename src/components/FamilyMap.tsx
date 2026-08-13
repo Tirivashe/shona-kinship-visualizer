@@ -76,16 +76,25 @@ function buildFlowElements(egoId: string): {
     };
   });
 
-  const edges: Edge[] = sampleRelationships.map((relationship) => {
+  // Keep every relationship as a layout constraint, but only render direct
+  // family-unit connections. Sibling facts remain available to kinship
+  // resolution without adding sibling-to-sibling lines to the canvas.
+  for (const relationship of sampleRelationships) {
     graph.setEdge(relationship.personAId, relationship.personBId);
+  }
 
-    return {
+  const edges: Edge[] = sampleRelationships
+    .filter(
+      (relationship) =>
+        relationship.type === "PARENT_OF" ||
+        relationship.type === "SPOUSE_OF",
+    )
+    .map((relationship) => ({
       id: relationship.id,
       source: relationship.personAId,
       target: relationship.personBId,
       type: "smoothstep",
-    };
-  });
+    }));
 
   dagre.layout(graph);
 

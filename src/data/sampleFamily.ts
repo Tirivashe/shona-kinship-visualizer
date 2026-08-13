@@ -104,6 +104,12 @@ export const samplePeople: Person[] = [
     surname: "Gweru",
     sex: "female",
   },
+  {
+    id: "lucy",
+    firstName: "Lucy",
+    surname: "Shamhu",
+    sex: "female",
+  },
 ];
 
 export const sampleRelationships: Relationship[] = [
@@ -125,24 +131,24 @@ export const sampleRelationships: Relationship[] = [
     personAId: "ebba",
     personBId: "tina",
   },
-  {
-    id: "johnson-tiri",
-    type: "PARENT_OF",
-    personAId: "johnson",
-    personBId: "tiri",
-  },
-  {
-    id: "johnson-taku",
-    type: "PARENT_OF",
-    personAId: "johnson",
-    personBId: "taku",
-  },
-  {
-    id: "johnson-tina",
-    type: "PARENT_OF",
-    personAId: "johnson",
-    personBId: "tina",
-  },
+  // {
+  //   id: "johson-tiri",
+  //   type: "PARENT_OF",
+  //   personAId: "johnson",
+  //   personBId: "tiri",
+  // },
+  // {
+  //   id: "johnson-taku",
+  //   type: "PARENT_OF",
+  //   personAId: "johnson",
+  //   personBId: "taku",
+  // },
+  // {
+  //   id: "johnson-tina",
+  //   type: "PARENT_OF",
+  //   personAId: "johnson",
+  //   personBId: "tina",
+  // },
 
   {
     id: "gladys-simba",
@@ -269,5 +275,11 @@ export const sampleRelationships: Relationship[] = [
     type: "SPOUSE_OF",
     personAId: "johnson",
     personBId: "ebba",
+  },
+  {
+    id: "lucy-tawanda",
+    type: "SPOUSE_OF",
+    personAId: "tawanda",
+    personBId: "lucy",
   },
 ];
