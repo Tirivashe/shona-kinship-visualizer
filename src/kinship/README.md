@@ -65,9 +65,34 @@ return `socialTerm` and `socialDescription`:
 
 Reference variants remain aliases rather than competing principal titles. For
 example, a wife's mother resolves principally to `Ambuya`, with `Mbuyawasha`
-and `Ambuyawasha` as aliases. A husband's brother resolves principally to
-`Muramu`; seniority can supply `Babamukuru` or `Babamunini` as an alias while
-the social protocol remains `Vasekedzani`.
+and `Ambuyawasha` as aliases. A husband's older brother resolves principally
+to `Bamkuru`, and his younger brother to `Bamnini`; `Muramu` remains an alias
+for their joking relationship while the social protocol is `Vasekedzani`.
+A wife's older and younger sisters resolve reciprocally to `Maiguru` and
+`Mainini`, with `Muramu` retained as an alias; their husbands inherit the
+corresponding `Bamkuru` and `Bamnini` titles. A husband's sister is `Tete`.
+On the wife-giving descendant branch, a wife's brother's son resolves to
+`Sekuru`, while his daughter resolves to `Mainini` with `Muramu` retained as
+an alias.
+
+A terminal marriage edge is also projected from the source relative's
+already-resolved fundamental kin class. This keeps the algebra compositional:
+
+- `Mwana` projects to `Muroora` for a female spouse and `Mukuwasha` for a male
+  spouse;
+- `Mukoma` and `Munin'ina` project to `Maiguru`/`Bamkuru` and
+  `Mainini`/`Bamnini`, preserving the source relative's seniority;
+- `Muzukuru` remains `Muzukuru` across the marriage;
+- `Sekuru` and `Mbuya` project reciprocally to `Mbuya` and `Sekuru`;
+- `Tete` projects to a male spouse as `Bamkuru`;
+- `Hanzvadzi` projects to `Tsano` for a male spouse and `Maiguru` for a female
+  spouse.
+
+The source is resolved recursively through the ordinary BFS and reduction
+pipeline before the marriage projection is applied. The recursion always uses
+a shorter path and therefore terminates; no complete genealogical path is
+registered as a lookup key. Explicit sibling seniority belongs to the source
+relative, not their spouse, and is preserved at this boundary.
 
 The same projection covers a child's spouse and that in-law's family:
 
@@ -79,9 +104,10 @@ The same projection covers a child's spouse and that in-law's family:
 - piblings and cross-cousins without a narrower verified title retain the
   explicit `Hama yeVakuwasha` or `Hama dzeMuroora` side classification.
 
-The projector intentionally stops at a second marriage boundary. Composing
-multiple independent alliances requires an explicit cultural composition law;
-silently treating them as one lineage would create false certainty.
+The projector composes across another marriage boundary only when the prefix
+has already resolved to one of the explicit fundamental classes above. Other
+multiple-alliance paths still remain unmapped rather than implying an
+unsupported cultural equivalence.
 
 ## Classificatory parents
 

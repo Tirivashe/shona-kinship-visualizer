@@ -398,9 +398,12 @@ export class KinshipResolver {
 
   private resolveTraversal(traversal: TraversalResult, context: Context) {
     const canonicalRule = this.bestRule(traversal.canonicalPath, context, 970);
+    const sourceResolution = canonicalRule
+      ? undefined
+      : this.resolveSourceBeforeMarriage(traversal, context);
     const affinalProjection = canonicalRule
       ? null
-      : this.affinalProjector.project(traversal, context);
+      : this.affinalProjector.project(traversal, context, sourceResolution);
 
     if (affinalProjection) {
       return {
@@ -434,6 +437,37 @@ export class KinshipResolver {
       reducedPath: reduction.reducedPath,
       derivation: [...reduction.derivation, `${rule.id}: ${rule.explanation}`],
     };
+  }
+
+  /**
+   * Resolve the relative immediately before a terminal marriage edge. The
+   * prefix is strictly shorter than the target traversal, so recursive
+   * kin-class projection terminates while reusing the engine's existing rules.
+   */
+  private resolveSourceBeforeMarriage(
+    traversal: TraversalResult,
+    context: Context,
+  ): KinshipResolution | undefined {
+    const marriageStep = traversal.rawPath.at(-1);
+    if (
+      traversal.rawPath.length < 2 ||
+      (marriageStep !== "H" && marriageStep !== "W")
+    ) {
+      return undefined;
+    }
+
+    const sourceId = traversal.personIds.at(-2);
+    if (!sourceId || sourceId === context.egoId) return undefined;
+
+    return this.resolve({
+      egoId: context.egoId,
+      targetId: sourceId,
+      egoSex: context.egoSex,
+      // A terminal spouse can have a different age from the relative through
+      // whom the marriage is reached. Preserve the source relative's own
+      // explicit sibling seniority (or birth order) for class projection.
+      relativeAge: this.graph.relativeAge(context.egoId, sourceId),
+    });
   }
 
   private bestRule(
