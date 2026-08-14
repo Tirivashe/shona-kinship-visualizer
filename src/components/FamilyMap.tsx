@@ -16,6 +16,7 @@ import { useEffect, useState } from "react";
 import { samplePeople, sampleRelationships } from "@/data/sampleFamily";
 
 import { resolveKinship } from "@/kinship/resolve";
+import type { Relationship } from "@/types/family";
 
 import { PersonNode, type PersonNodeData } from "./PersonNode";
 
@@ -26,6 +27,21 @@ const nodeTypes = {
 const NODE_WIDTH = 220;
 const NODE_HEIGHT = 112;
 const DEFAULT_EGO_ID = samplePeople[0]?.id ?? "";
+
+const EDGE_COLORS: Record<Relationship["type"], string> = {
+  SPOUSE_OF: "#ff2d95",
+  SIBLING_OF: "#4b2e1f",
+  PARENT_OF: "#dc2626",
+};
+
+const EDGE_LEGEND: Array<{
+  type: Relationship["type"];
+  label: string;
+}> = [
+  { type: "SPOUSE_OF", label: "Spouse" },
+  { type: "SIBLING_OF", label: "Sibling" },
+  { type: "PARENT_OF", label: "Parent–child" },
+];
 
 const peopleById = new Map(samplePeople.map((person) => [person.id, person]));
 
@@ -77,24 +93,22 @@ function buildFlowElements(egoId: string): {
     };
   });
 
-  // Keep every relationship as a layout constraint, but only render direct
-  // family-unit connections. Sibling facts remain available to kinship
-  // resolution without adding sibling-to-sibling lines to the canvas.
+  // Every relationship participates in layout and is rendered with a stable
+  // visual identity so the graph remains readable when ego changes.
   for (const relationship of sampleRelationships) {
     graph.setEdge(relationship.personAId, relationship.personBId);
   }
 
   const edges: Edge[] = sampleRelationships
-    .filter(
-      (relationship) =>
-        relationship.type === "PARENT_OF" ||
-        relationship.type === "SPOUSE_OF",
-    )
     .map((relationship) => ({
       id: relationship.id,
       source: relationship.personAId,
       target: relationship.personBId,
       type: "smoothstep",
+      style: {
+        stroke: EDGE_COLORS[relationship.type],
+        strokeWidth: 3,
+      },
     }));
 
   dagre.layout(graph);
@@ -182,6 +196,7 @@ export default function FamilyMap() {
       <div
         className="
           flex
+          flex-wrap
           items-center
           gap-3
           border-b
@@ -209,6 +224,22 @@ export default function FamilyMap() {
             </option>
           ))}
         </select>
+
+        <div
+          aria-label="Relationship connection colors"
+          className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-600"
+        >
+          {EDGE_LEGEND.map(({ type, label }) => (
+            <span key={type} className="inline-flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className="h-0.5 w-6 rounded-full"
+                style={{ backgroundColor: EDGE_COLORS[type] }}
+              />
+              {label}
+            </span>
+          ))}
+        </div>
       </div>
 
       <div className="min-h-0 flex-1">
