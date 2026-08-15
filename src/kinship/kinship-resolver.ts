@@ -18,6 +18,10 @@ function exact(expected: readonly KStep[]) {
     path.every((step, index) => step === expected[index]);
 }
 
+function isConsanguineal(path: readonly KStep[]) {
+  return path.every((step) => step !== "H" && step !== "W");
+}
+
 function known(ruleId: string, title: string, description: string) {
   return { status: "known" as const, ruleId, title, description };
 }
@@ -216,6 +220,29 @@ const rules: KinRule[] = [
     explanation: "Two upward generations form a grandparent category.",
   },
   {
+    id: "GRANDPARENT_GENERATION_COLLATERAL",
+    axis: "contextual",
+    priority: 845,
+    matches: (path, context) =>
+      context.generationDistance === 2 &&
+      path.length >= 2 &&
+      isConsanguineal(path),
+    resolve: (_path, context) =>
+      context.targetSex === "M"
+        ? known(
+            "GRANDPARENT_GENERATION_MALE_COLLATERAL",
+            "Sekuru",
+            "Your male grandparent-generation relative.",
+          )
+        : known(
+            "GRANDPARENT_GENERATION_FEMALE_COLLATERAL",
+            "Ambuya",
+            "Your female grandparent-generation relative.",
+          ),
+    explanation:
+      "Consanguineal piblings, siblings, and cousins in ego's grandparent generation are classified by target sex.",
+  },
+  {
     id: "GRANDCHILD",
     axis: "contextual",
     priority: 850,
@@ -225,33 +252,6 @@ const rules: KinRule[] = [
       path.every((step) => step === "S" || step === "D"),
     resolve: () => known("GRANDCHILD", "Muzukuru", "Your grandchild."),
     explanation: "Two downward generations form a grandchild category.",
-  },
-  {
-    id: "GREAT_GRANDCHILD",
-    axis: "contextual",
-    priority: 850,
-    matches: (path, context) =>
-      context.generationDistance === -3 &&
-      path.length === 3 &&
-      path.every((step) => step === "S" || step === "D"),
-    resolve: () =>
-      known("GREAT_GRANDCHILD", "Chizukuruchibvi", "Your great-grandchild."),
-    explanation:
-      "Three downward generations form the great-grandchild category.",
-  },
-  {
-    id: "DISTANT_MALE_ANCESTOR",
-    axis: "P",
-    priority: 840,
-    matches: (path, context) =>
-      context.targetSex === "M" &&
-      context.generationDistance >= 3 &&
-      path.length >= 3 &&
-      path.every((step) => step === "F" || step === "M"),
-    resolve: () =>
-      known("DISTANT_MALE_ANCESTOR", "Tateguru", "Your distant male ancestor."),
-    explanation:
-      "A male ancestor at least three generations above ego is Tateguru.",
   },
   ...(
     [
@@ -338,8 +338,7 @@ export class KinshipResolver {
       egoSex: query.egoSex ?? ego.sex,
       targetSex: query.targetSex ?? target.sex,
       relativeAge:
-        query.relativeAge ??
-        this.relativeAge(ego.birthOrder, target.birthOrder),
+        query.relativeAge ?? this.graph.relativeAge(query.egoId, query.targetId),
     };
 
     const paths = this.graph.findShortestPaths(query.egoId, query.targetId);
@@ -398,6 +397,38 @@ export class KinshipResolver {
 
   private resolveTraversal(traversal: TraversalResult, context: Context) {
     const canonicalRule = this.bestRule(traversal.canonicalPath, context, 970);
+    const grandparentAncestor = canonicalRule
+      ? undefined
+      : this.resolveGrandparentAncestor(traversal, context);
+
+    if (grandparentAncestor) {
+      return {
+        priority: 965,
+        ...grandparentAncestor,
+        traversal,
+        reducedPath: traversal.canonicalPath,
+        derivation: [
+          "GRANDPARENT_ANCESTOR: ancestors of Sekuru or Ambuya/Mbuya remain in the grandparent class according to target sex.",
+        ],
+      };
+    }
+
+    const muzukuruDescendant = canonicalRule
+      ? undefined
+      : this.resolveMuzukuruDescendant(traversal, context);
+
+    if (muzukuruDescendant) {
+      return {
+        priority: 965,
+        ...muzukuruDescendant,
+        traversal,
+        reducedPath: traversal.canonicalPath,
+        derivation: [
+          "MUZUKURU_DESCENDANT: a Muzukuru's descendants remain in the Muzukuru class.",
+        ],
+      };
+    }
+
     const sourceResolution = canonicalRule
       ? undefined
       : this.resolveSourceBeforeMarriage(traversal, context);
@@ -437,6 +468,100 @@ export class KinshipResolver {
       reducedPath: reduction.reducedPath,
       derivation: [...reduction.derivation, `${rule.id}: ${rule.explanation}`],
     };
+  }
+
+  /**
+   * Reciprocate the recursive Muzukuru descendant rule in the upward
+   * direction. Once the person immediately below the target belongs to ego's
+   * grandparent class, that person's parent remains in the same class, with
+   * the final ancestor's sex selecting Sekuru or Ambuya/Mbuya. Each recursive
+   * call resolves a strictly shorter traversal, so arbitrary depths terminate.
+   */
+  private resolveGrandparentAncestor(
+    traversal: TraversalResult,
+    context: Context,
+  ) {
+    const finalStep = traversal.rawPath.at(-1);
+    if (
+      traversal.rawPath.length < 2 ||
+      (finalStep !== "F" && finalStep !== "M")
+    ) {
+      return undefined;
+    }
+
+    const descendantId = traversal.personIds.at(-2);
+    if (!descendantId || descendantId === context.egoId) return undefined;
+
+    const descendantResolution = this.resolve({
+      egoId: context.egoId,
+      targetId: descendantId,
+      egoSex: context.egoSex,
+      relativeAge: this.graph.relativeAge(context.egoId, descendantId),
+    });
+
+    if (
+      descendantResolution.status !== "known" ||
+      !["Sekuru", "Ambuya", "Mbuya"].includes(descendantResolution.title)
+    ) {
+      return undefined;
+    }
+
+    return context.targetSex === "M"
+      ? known(
+          "RECURSIVE_MALE_GRANDPARENT_ANCESTOR",
+          "Sekuru",
+          "A male ancestor of your grandparent-class relative remains Sekuru.",
+        )
+      : {
+          ...known(
+            "RECURSIVE_FEMALE_GRANDPARENT_ANCESTOR",
+            "Ambuya",
+            "A female ancestor of your grandparent-class relative remains Ambuya or Mbuya.",
+          ),
+          aliases: ["Mbuya"],
+        };
+  }
+
+  /**
+   * Propagate the Muzukuru class through any number of child edges. Resolving
+   * only the target's parent keeps this rule recursive and path-independent:
+   * each call operates on a strictly shorter traversal and therefore
+   * terminates at the original relationship that established Muzukuru.
+   */
+  private resolveMuzukuruDescendant(
+    traversal: TraversalResult,
+    context: Context,
+  ) {
+    const finalStep = traversal.rawPath.at(-1);
+    if (
+      traversal.rawPath.length < 2 ||
+      (finalStep !== "S" && finalStep !== "D")
+    ) {
+      return undefined;
+    }
+
+    const parentId = traversal.personIds.at(-2);
+    if (!parentId || parentId === context.egoId) return undefined;
+
+    const parentResolution = this.resolve({
+      egoId: context.egoId,
+      targetId: parentId,
+      egoSex: context.egoSex,
+      relativeAge: this.graph.relativeAge(context.egoId, parentId),
+    });
+
+    if (
+      parentResolution.status !== "known" ||
+      parentResolution.title !== "Muzukuru"
+    ) {
+      return undefined;
+    }
+
+    return known(
+      "MUZUKURU_DESCENDANT",
+      "Muzukuru",
+      "A descendant of your Muzukuru remains in your Muzukuru category.",
+    );
   }
 
   /**
@@ -481,13 +606,6 @@ export class KinshipResolver {
           rule.priority >= minimumPriority && rule.matches(path, context),
       )
       .sort((a, b) => b.priority - a.priority)[0];
-  }
-
-  private relativeAge(egoOrder?: number, targetOrder?: number): RelativeAge {
-    if (egoOrder === undefined || targetOrder === undefined) return "unknown";
-    if (targetOrder < egoOrder) return "older";
-    if (targetOrder > egoOrder) return "younger";
-    return "same";
   }
 
   /** Find the first sibling comparison represented by the raw traversal. */

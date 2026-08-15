@@ -16,7 +16,6 @@ import type {
   KinshipResolution,
   KStep,
   Person,
-  RelativeAge,
   Sex,
 } from "./model";
 
@@ -82,41 +81,6 @@ function supplementalSiblings(
     }));
 }
 
-function targetRelativeAge(
-  egoId: string,
-  targetId: string,
-  people: readonly LegacyPerson[],
-  relationships: readonly Relationship[],
-): RelativeAge {
-  const seniority = relationships.find(
-    (relationship) =>
-      relationship.type === "SIBLING_OF" &&
-      ((relationship.personAId === egoId &&
-        relationship.personBId === targetId) ||
-        (relationship.personAId === targetId &&
-          relationship.personBId === egoId)),
-  );
-
-  if (seniority?.type === "SIBLING_OF") {
-    if (seniority.seniority === "UNKNOWN") return "unknown";
-    const targetIsA = seniority.personAId === targetId;
-    const targetIsOlder =
-      (targetIsA && seniority.seniority === "A_OLDER") ||
-      (!targetIsA && seniority.seniority === "B_OLDER");
-    return targetIsOlder ? "older" : "younger";
-  }
-
-  const ego = people.find((person) => person.id === egoId);
-  const target = people.find((person) => person.id === targetId);
-  if (!ego?.dateOfBirth || !target?.dateOfBirth) return "unknown";
-  const egoBirth = Date.parse(ego.dateOfBirth);
-  const targetBirth = Date.parse(target.dateOfBirth);
-  if (Number.isNaN(egoBirth) || Number.isNaN(targetBirth)) return "unknown";
-  if (targetBirth < egoBirth) return "older";
-  if (targetBirth > egoBirth) return "younger";
-  return "same";
-}
-
 const rawStepToLegacy: Record<KStep, PathStep> = {
   F: "father",
   M: "mother",
@@ -178,7 +142,6 @@ export function resolveKinship(
       targetId,
       egoSex: ego ? toSex(ego.sex) : undefined,
       targetSex: target ? toSex(target.sex) : undefined,
-      relativeAge: targetRelativeAge(egoId, targetId, people, relationships),
     }),
   );
 }

@@ -25,6 +25,10 @@ older React demo records. New integrations should instantiate
 - Parallel cousins consequently reduce to sibling-equivalents.
 - `M.B.S* -> Sekuru` implements **Sekuru haaperi** recursively.
 - `M.B.D -> Mainini` remains a structural exception.
+- Any consanguineal relative in ego's grandparent generation (generation
+  distance `+2`) resolves by target sex: male relatives are `Sekuru` and female
+  relatives are `Ambuya`. This generatively includes grandparents' siblings
+  and cousins, including the relatives who are piblings to ego's parent.
 - `F.Z.(S|D)` is `Mwana` for a female ego and `Muzukuru` for a male ego,
   preserving the sex-dependent paternal-aunt cross-cousin distinction.
 - Affinal paths are projected over a reduced classificatory lineage rather
@@ -35,11 +39,27 @@ older React demo records. New integrations should instantiate
 - For a same-sex sibling, `(male ego: B | female ego: Z).(S|D)` reduces to
   ego's classificatory-child category (`Mwana`). An opposite-sex sibling's child stays
   in the `Muzukuru` category.
+- `Muzukuru.(S|D)* -> Muzukuru` is evaluated recursively from the resolved
+  parent class. Consequently, children and all later descendants of any
+  `Muzukuru` remain `Muzukuru`, whether that starting class came from a
+  grandchild, paternal-aunt child, opposite-sex sibling's child, or another
+  supported projection.
+- Reciprocally, `(Sekuru|Ambuya|Mbuya).(F|M)*` remains in the grandparent
+  class at every higher ancestral generation. The final ancestor's sex selects
+  `Sekuru` for a man and `Ambuya` (alias `Mbuya`) for a woman. This is resolved
+  recursively from the immediately lower relative rather than from enumerated
+  ancestor paths.
 
 Seniority for `F.B`, `M.Z`, their spouses, and `H.B` is calculated between the
 two siblings represented by the selected traversal. The engine uses explicit
 sibling seniority first and birth order second; it does not compare those
 relatives to ego.
+
+Explicit sibling links form equivalence groups. Every known classificatory
+parent of one member—including a parent's spouse—is projected across the full
+sibling group. The resulting inferred graph edges make parenthood reciprocal:
+each sibling resolves the adult as `Mai`/`Baba`, while the adult resolves every
+sibling as `Mwana`. Only the source relationships remain visible in the UI.
 
 Rules are finite algebraic patterns. Recursive lineage behavior is expressed
 with structural predicates, not a list of every possible path length.
@@ -111,12 +131,21 @@ unsupported cultural equivalence.
 
 ## Classificatory parents
 
-`PARENT_OF` deliberately has no biological, adoptive, step, or social
-qualifier. Every person fulfilling a parent role is represented by the same `F`
-or `M` edge, and every child by the reciprocal `S` or `D` edge. Each parent
-therefore contributes their complete ancestry, piblings, cousins, descendants,
-and affinal relationships. Extra role labels in older persisted records are
-ignored when records are adapted into the engine.
+Every direct parent or child connection can be marked `biological: true`; an
+unchecked connection remains an ordinary functional parent record. A shared
+`biologicalUnionId` is assigned whenever two biological parents share a child.
+The resolver deliberately ignores both rendering fields. Every person
+fulfilling a parent role is represented by the same `F` or `M` edge, and every
+child by the reciprocal `S` or `D` edge. Each parent therefore contributes
+their complete ancestry, piblings, cousins, descendants, and affinal
+relationships.
+
+The UI draws a parent-child line only for records marked `biological: true`.
+Two biological parents' lines consolidate at one junction and branch to every
+shared biological child, regardless of whether the parents are spouses or
+married. A spouse record has an independent symmetric `married` flag; only
+married spouses receive the pink connection. Neither marriage nor spousehood
+implies biological parenthood.
 
 A recorded parent's spouse is materialized as another classificatory parent of
 each child. For example, a mother's husband is reached directly as `F` and is

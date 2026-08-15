@@ -95,6 +95,182 @@ describe("three-axis Shona algebra", () => {
     expect(resolve(people, { egoId: "ego", targetId: "sister" }).title).toBe("Hanzvadzi");
   });
 
+  it("closes explicit sibling groups and keeps Hanzvadzi independent of seniority", () => {
+    const people: LegacyPerson[] = [
+      { id: "tiri", firstName: "Tiri", surname: "M", sex: "male" },
+      { id: "tina", firstName: "Tina", surname: "M", sex: "female" },
+      { id: "taku", firstName: "Taku", surname: "M", sex: "male" },
+    ];
+    const relationships: Relationship[] = [
+      {
+        id: "tiri-tina",
+        type: "SIBLING_OF",
+        personAId: "tiri",
+        personBId: "tina",
+        seniority: "B_OLDER",
+      },
+      {
+        id: "tiri-taku",
+        type: "SIBLING_OF",
+        personAId: "tiri",
+        personBId: "taku",
+        seniority: "B_OLDER",
+      },
+    ];
+
+    const result = resolveKinship("tina", "taku", people, relationships);
+
+    expect(result.title).toBe("Hanzvadzi");
+    expect(result.path?.personIds).toEqual(["tina", "taku"]);
+  });
+
+  it("infers same-sex sibling seniority through an older-than chain", () => {
+    const people: LegacyPerson[] = [
+      { id: "oldest", firstName: "Oldest", surname: "M", sex: "male" },
+      { id: "middle", firstName: "Middle", surname: "M", sex: "male" },
+      { id: "youngest", firstName: "Youngest", surname: "M", sex: "male" },
+    ];
+    const relationships: Relationship[] = [
+      {
+        id: "oldest-middle",
+        type: "SIBLING_OF",
+        personAId: "oldest",
+        personBId: "middle",
+        seniority: "A_OLDER",
+      },
+      {
+        id: "middle-youngest",
+        type: "SIBLING_OF",
+        personAId: "middle",
+        personBId: "youngest",
+        seniority: "A_OLDER",
+      },
+    ];
+
+    expect(
+      resolveKinship("youngest", "oldest", people, relationships).title,
+    ).toBe("Mukoma");
+    expect(
+      resolveKinship("oldest", "youngest", people, relationships).title,
+    ).toBe("Munin'ina");
+  });
+
+  it("does not invent an order between siblings on incomparable seniority branches", () => {
+    const people: LegacyPerson[] = [
+      { id: "tiri", firstName: "Tiri", surname: "M", sex: "male" },
+      { id: "tina", firstName: "Tina", surname: "M", sex: "male" },
+      { id: "taku", firstName: "Taku", surname: "M", sex: "male" },
+    ];
+    const relationships: Relationship[] = [
+      {
+        id: "tiri-tina",
+        type: "SIBLING_OF",
+        personAId: "tiri",
+        personBId: "tina",
+        seniority: "B_OLDER",
+      },
+      {
+        id: "tiri-taku",
+        type: "SIBLING_OF",
+        personAId: "tiri",
+        personBId: "taku",
+        seniority: "B_OLDER",
+      },
+    ];
+
+    const result = resolveKinship("tina", "taku", people, relationships);
+
+    expect(result.status).toBe("ambiguous");
+    expect(result.title).toBe("Mukoma / Munin'ina");
+  });
+
+  it("propagates reciprocal classificatory parenthood across a complete sibling group", () => {
+    const people: LegacyPerson[] = [
+      { id: "ebbah", firstName: "Ebbah", surname: "M", sex: "female" },
+      { id: "johnson", firstName: "Johnson", surname: "M", sex: "male" },
+      { id: "tiri", firstName: "Tiri", surname: "M", sex: "male" },
+      { id: "tina", firstName: "Tina", surname: "M", sex: "female" },
+      { id: "taku", firstName: "Taku", surname: "M", sex: "male" },
+    ];
+    const relationships: Relationship[] = [
+      {
+        id: "ebbah-taku",
+        type: "PARENT_OF",
+        personAId: "ebbah",
+        personBId: "taku",
+      },
+      {
+        id: "ebbah-johnson",
+        type: "SPOUSE_OF",
+        personAId: "ebbah",
+        personBId: "johnson",
+      },
+      {
+        id: "tiri-tina",
+        type: "SIBLING_OF",
+        personAId: "tiri",
+        personBId: "tina",
+        seniority: "B_OLDER",
+      },
+      {
+        id: "tiri-taku",
+        type: "SIBLING_OF",
+        personAId: "tiri",
+        personBId: "taku",
+        seniority: "B_OLDER",
+      },
+    ];
+
+    const tiriToEbbah = resolveKinship(
+      "tiri",
+      "ebbah",
+      people,
+      relationships,
+    );
+    const tinaToEbbah = resolveKinship(
+      "tina",
+      "ebbah",
+      people,
+      relationships,
+    );
+    const ebbahToTiri = resolveKinship(
+      "ebbah",
+      "tiri",
+      people,
+      relationships,
+    );
+    const ebbahToTina = resolveKinship(
+      "ebbah",
+      "tina",
+      people,
+      relationships,
+    );
+
+    expect(tiriToEbbah).toMatchObject({
+      title: "Mai",
+      path: { steps: ["mother"] },
+    });
+    expect(tinaToEbbah).toMatchObject({
+      title: "Mai",
+      path: { steps: ["mother"] },
+    });
+    expect(ebbahToTiri).toMatchObject({
+      title: "Mwana",
+      path: { steps: ["son"] },
+    });
+    expect(ebbahToTina).toMatchObject({
+      title: "Mwana",
+      path: { steps: ["daughter"] },
+    });
+
+    expect(resolveKinship("tiri", "johnson", people, relationships).title).toBe(
+      "Baba",
+    );
+    expect(resolveKinship("johnson", "tina", people, relationships).title).toBe(
+      "Mwana",
+    );
+  });
+
   it.each([
     ["F", "sister", "sisters-son", "S"],
     ["M", "brother", "brothers-daughter", "D"],
@@ -208,6 +384,78 @@ describe("three-axis Shona algebra", () => {
     expect(result.traversal?.canonicalPath).toEqual(["M", "B", "D"]);
     expect(result.title).toBe("Mainini");
   });
+
+  it.each([
+    ["grandmothers-brother", "M", "B", "Sekuru"],
+    ["grandmothers-sister", "F", "Z", "Ambuya"],
+  ] as const)(
+    "classifies a grandmother's sibling %s in ego's grandparent generation",
+    (targetId, targetSex, siblingStep, expectedTitle) => {
+      const people = [
+        person("great-grandfather", "M"),
+        person("grandmother", "F", { fatherId: "great-grandfather" }),
+        person(targetId, targetSex, { fatherId: "great-grandfather" }),
+        person("mother", "F", { motherId: "grandmother" }),
+        person("ego", "M", { motherId: "mother" }),
+      ];
+
+      const result = resolve(people, { egoId: "ego", targetId });
+
+      expect(result.traversal?.canonicalPath).toEqual([
+        "M",
+        "M",
+        siblingStep,
+      ]);
+      expect(result.traversal?.generationDistance).toBe(2);
+      expect(result.status).toBe("known");
+      expect(result.title).toBe(expectedTitle);
+      expect(result.ruleId).toBe(
+        targetSex === "M"
+          ? "GRANDPARENT_GENERATION_MALE_COLLATERAL"
+          : "GRANDPARENT_GENERATION_FEMALE_COLLATERAL",
+      );
+    },
+  );
+
+  it.each([
+    ["grandmothers-male-cousin", "M", "B", "Sekuru"],
+    ["grandmothers-female-cousin", "F", "Z", "Ambuya"],
+  ] as const)(
+    "classifies a grandmother's cousin %s in ego's grandparent generation",
+    (targetId, targetSex, reducedSiblingStep, expectedTitle) => {
+      const people = [
+        person("great-great-grandfather", "M"),
+        person("grandmother-father", "M", {
+          fatherId: "great-great-grandfather",
+        }),
+        person("cousin-father", "M", {
+          fatherId: "great-great-grandfather",
+        }),
+        person("grandmother", "F", { fatherId: "grandmother-father" }),
+        person(targetId, targetSex, { fatherId: "cousin-father" }),
+        person("mother", "F", { motherId: "grandmother" }),
+        person("ego", "M", { motherId: "mother" }),
+      ];
+
+      const result = resolve(people, { egoId: "ego", targetId });
+
+      expect(result.traversal?.canonicalPath).toEqual([
+        "M",
+        "M",
+        "F",
+        "B",
+        targetSex === "M" ? "S" : "D",
+      ]);
+      expect(result.reducedPath).toEqual([
+        "M",
+        "M",
+        reducedSiblingStep,
+      ]);
+      expect(result.traversal?.generationDistance).toBe(2);
+      expect(result.status).toBe("known");
+      expect(result.title).toBe(expectedTitle);
+    },
+  );
 
   it.each(["S", "D"] as const)(
     "skews a male ego's F.Z.%s relation to Muzukuru",
@@ -482,21 +730,128 @@ describe("three-axis Shona algebra", () => {
 
   it("retains calculated generation categories", () => {
     const people = [
-      person("ancestor", "M"),
+      person("ancestor-mother", "F"),
+      person("ancestor", "M", { motherId: "ancestor-mother" }),
       person("grandfather", "M", { fatherId: "ancestor" }),
       person("father", "M", { fatherId: "grandfather" }),
       person("ego", "M", { fatherId: "father" }),
       person("child", "F", { fatherId: "ego" }),
       person("grandchild", "M", { motherId: "child" }),
       person("great-grandchild", "F", { fatherId: "grandchild" }),
+      person("great-great-grandchild", "M", {
+        motherId: "great-grandchild",
+      }),
     ];
 
     expect(resolve(people, { egoId: "ego", targetId: "grandfather" }).title).toBe("Sekuru");
-    expect(resolve(people, { egoId: "ego", targetId: "ancestor" }).title).toBe("Tateguru");
+    expect(resolve(people, { egoId: "ego", targetId: "ancestor" })).toMatchObject({
+      title: "Sekuru",
+      ruleId: "RECURSIVE_MALE_GRANDPARENT_ANCESTOR",
+    });
+    expect(
+      resolve(people, { egoId: "ego", targetId: "ancestor-mother" }),
+    ).toMatchObject({
+      title: "Ambuya",
+      aliases: ["Mbuya"],
+      ruleId: "RECURSIVE_FEMALE_GRANDPARENT_ANCESTOR",
+    });
     expect(resolve(people, { egoId: "ego", targetId: "grandchild" }).title).toBe("Muzukuru");
-    expect(resolve(people, { egoId: "ego", targetId: "great-grandchild" }).title).toBe(
-      "Chizukuruchibvi",
+    expect(
+      resolve(people, { egoId: "ego", targetId: "great-grandchild" }),
+    ).toMatchObject({
+      title: "Muzukuru",
+      ruleId: "MUZUKURU_DESCENDANT",
+    });
+    expect(
+      resolve(people, { egoId: "ego", targetId: "great-great-grandchild" }),
+    ).toMatchObject({
+      title: "Muzukuru",
+      ruleId: "MUZUKURU_DESCENDANT",
+    });
+
+    expect(resolve(people, { egoId: "ancestor", targetId: "ego" })).toMatchObject({
+      title: "Muzukuru",
+      ruleId: "MUZUKURU_DESCENDANT",
+    });
+    expect(
+      resolve(people, { egoId: "ancestor-mother", targetId: "ego" }),
+    ).toMatchObject({
+      title: "Muzukuru",
+      ruleId: "MUZUKURU_DESCENDANT",
+    });
+  });
+
+  it("recursively classifies ancestors above a collateral grandparent", () => {
+    const people = [
+      person("great-great-grandmother", "F"),
+      person("great-grandfather", "M", {
+        motherId: "great-great-grandmother",
+      }),
+      person("grandmother", "F", { fatherId: "great-grandfather" }),
+      person("grandmothers-brother", "M", {
+        fatherId: "great-grandfather",
+      }),
+      person("mother", "F", { motherId: "grandmother" }),
+      person("ego", "F", { motherId: "mother" }),
+    ];
+
+    expect(
+      resolve(people, { egoId: "ego", targetId: "grandmothers-brother" }),
+    ).toMatchObject({ title: "Sekuru" });
+    expect(
+      resolve(people, { egoId: "ego", targetId: "great-great-grandmother" }),
+    ).toMatchObject({
+      title: "Ambuya",
+      aliases: ["Mbuya"],
+      ruleId: "RECURSIVE_FEMALE_GRANDPARENT_ANCESTOR",
+    });
+  });
+
+  it("propagates Muzukuru through a paternal-aunt child's descendants", () => {
+    const people = [
+      person("paternal-grandfather", "M"),
+      person("father", "M", { fatherId: "paternal-grandfather" }),
+      person("paternal-aunt", "F", { fatherId: "paternal-grandfather" }),
+      person("ego", "M", { fatherId: "father" }),
+      person("aunts-child", "M", { motherId: "paternal-aunt" }),
+      person("aunts-grandchild", "F", { fatherId: "aunts-child" }),
+      person("aunts-great-grandchild", "M", {
+        motherId: "aunts-grandchild",
+      }),
+    ];
+
+    expect(resolve(people, { egoId: "ego", targetId: "aunts-child" }).title).toBe(
+      "Muzukuru",
     );
+    for (const targetId of [
+      "aunts-grandchild",
+      "aunts-great-grandchild",
+    ]) {
+      expect(resolve(people, { egoId: "ego", targetId })).toMatchObject({
+        title: "Muzukuru",
+        ruleId: "MUZUKURU_DESCENDANT",
+      });
+    }
+  });
+
+  it("propagates Muzukuru through an opposite-sex sibling's descendants", () => {
+    const people = [
+      person("parent", "M"),
+      person("ego", "M", { fatherId: "parent" }),
+      person("sister", "F", { fatherId: "parent" }),
+      person("sisters-child", "M", { motherId: "sister" }),
+      person("sisters-grandchild", "F", { fatherId: "sisters-child" }),
+    ];
+
+    expect(
+      resolve(people, { egoId: "ego", targetId: "sisters-child" }).title,
+    ).toBe("Muzukuru");
+    expect(
+      resolve(people, { egoId: "ego", targetId: "sisters-grandchild" }),
+    ).toMatchObject({
+      title: "Muzukuru",
+      ruleId: "MUZUKURU_DESCENDANT",
+    });
   });
 
   it("resolves the direct wife-giver axis for a male ego", () => {

@@ -7,6 +7,7 @@ export type PersonNodeData = {
   socialTerm?: string;
   isEgo: boolean;
   photoUrl?: string;
+  onEdit?: () => void;
 };
 
 export function PersonNode({ data }: NodeProps) {
@@ -22,6 +23,7 @@ export function PersonNode({ data }: NodeProps) {
     <div
       className={`
         w-55
+        relative
         rounded-xl
         border
         bg-white
@@ -31,12 +33,39 @@ export function PersonNode({ data }: NodeProps) {
       `}
     >
       <Handle type="target" position={Position.Top} className="opacity-0" />
+      <Handle
+        id="spouse-left"
+        type="target"
+        position={Position.Left}
+        className="opacity-0"
+      />
+      <Handle
+        id="spouse-right"
+        type="source"
+        position={Position.Right}
+        className="opacity-0"
+      />
 
-      <div className="flex items-center gap-3">
+      {person.onEdit && (
+        <button
+          type="button"
+          aria-label={`Edit ${person.name}`}
+          title={`Edit ${person.name}`}
+          onClick={person.onEdit}
+          className="nodrag nopan absolute top-2 right-2 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950"
+        >
+          Edit
+        </button>
+      )}
+
+      <div className="flex items-center gap-3 pr-10">
         {person.photoUrl ? (
           <Image
             src={person.photoUrl}
-            alt={person.name}
+            alt={`${person.name} profile`}
+            width={48}
+            height={48}
+            unoptimized
             className="
               h-12
               w-12

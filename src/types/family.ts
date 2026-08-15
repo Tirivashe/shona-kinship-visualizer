@@ -21,12 +21,18 @@ export type Relationship =
       type: "PARENT_OF";
       personAId: string; // parent
       personBId: string; // child
+      /** Explicit biological evidence used by the genealogy renderer only. */
+      biological?: boolean;
+      /** Shared by the two biological parent links for children of one couple. */
+      biologicalUnionId?: string;
     }
   | {
       id: string;
       type: "SPOUSE_OF";
       personAId: string;
       personBId: string;
+      /** Symmetric marriage state used by the family-tree renderer. */
+      married?: boolean;
     }
   | {
       id: string;

@@ -31,7 +31,7 @@ export interface SupplementalParent {
 export class FamilyTreeGraph {
   private readonly peopleById: Map<string, Person>;
   private readonly adjacency = new Map<string, GraphEdge[]>();
-  private readonly siblingAge = new Map<string, RelativeAge>();
+  private readonly olderThan = new Map<string, Set<string>>();
   private readonly parentsByChild = new Map<string, Set<string>>();
 
   constructor(
@@ -43,6 +43,7 @@ export class FamilyTreeGraph {
 
     for (const person of people) {
       this.adjacency.set(person.id, []);
+      this.olderThan.set(person.id, new Set());
       this.parentsByChild.set(person.id, new Set());
     }
     for (const person of people) this.addSpouseEdges(person);
@@ -72,19 +73,37 @@ export class FamilyTreeGraph {
       }
     }
 
+    const siblingNeighbors = new Map<string, Set<string>>();
     for (const sibling of supplementalSiblings) {
-      this.addSiblingEdge(sibling.personAId, sibling.personBId);
-      this.addSiblingEdge(sibling.personBId, sibling.personAId);
+      if (
+        sibling.personAId === sibling.personBId ||
+        !this.peopleById.has(sibling.personAId) ||
+        !this.peopleById.has(sibling.personBId)
+      ) {
+        continue;
+      }
+
+      this.addSiblingNeighbor(
+        siblingNeighbors,
+        sibling.personAId,
+        sibling.personBId,
+      );
+      this.addSiblingNeighbor(
+        siblingNeighbors,
+        sibling.personBId,
+        sibling.personAId,
+      );
+
       const bRelativeToA = sibling.personBRelativeAge ?? "unknown";
-      this.siblingAge.set(
-        this.ageKey(sibling.personAId, sibling.personBId),
-        bRelativeToA,
-      );
-      this.siblingAge.set(
-        this.ageKey(sibling.personBId, sibling.personAId),
-        this.invertAge(bRelativeToA),
-      );
+      if (bRelativeToA === "older") {
+        this.olderThan.get(sibling.personBId)?.add(sibling.personAId);
+      } else if (bRelativeToA === "younger") {
+        this.olderThan.get(sibling.personAId)?.add(sibling.personBId);
+      }
     }
+
+    const siblingComponents = this.addSiblingComponentEdges(siblingNeighbors);
+    this.propagateParentsAcrossSiblingComponents(siblingComponents);
   }
 
   getPerson(id: string): Person | undefined {
@@ -105,8 +124,11 @@ export class FamilyTreeGraph {
 
   /** Return the target's age relative to the reference person. */
   relativeAge(referenceId: string, targetId: string): RelativeAge {
-    const explicit = this.siblingAge.get(this.ageKey(referenceId, targetId));
-    if (explicit && explicit !== "unknown") return explicit;
+    const targetIsOlder = this.hasOlderPath(targetId, referenceId);
+    const referenceIsOlder = this.hasOlderPath(referenceId, targetId);
+    if (targetIsOlder && !referenceIsOlder) return "older";
+    if (referenceIsOlder && !targetIsOlder) return "younger";
+    if (targetIsOlder && referenceIsOlder) return "unknown";
 
     const reference = this.peopleById.get(referenceId);
     const target = this.peopleById.get(targetId);
@@ -257,6 +279,80 @@ export class FamilyTreeGraph {
     if (target) this.addEdge(fromId, toId, target.sex === "M" ? "B" : "Z");
   }
 
+  private addSiblingNeighbor(
+    neighbors: Map<string, Set<string>>,
+    fromId: string,
+    toId: string,
+  ) {
+    const current = neighbors.get(fromId) ?? new Set<string>();
+    current.add(toId);
+    neighbors.set(fromId, current);
+  }
+
+  /**
+   * Explicit siblinghood forms an equivalence group. Closing each connected
+   * component into a clique keeps a sibling-of-sibling a direct sibling while
+   * seniority remains a separate partial order.
+   */
+  private addSiblingComponentEdges(neighbors: Map<string, Set<string>>) {
+    const visited = new Set<string>();
+    const components: string[][] = [];
+
+    for (const personId of neighbors.keys()) {
+      if (visited.has(personId)) continue;
+
+      const component: string[] = [];
+      const queue = [personId];
+      visited.add(personId);
+
+      for (let cursor = 0; cursor < queue.length; cursor += 1) {
+        const currentId = queue[cursor];
+        component.push(currentId);
+        for (const siblingId of neighbors.get(currentId) ?? []) {
+          if (visited.has(siblingId)) continue;
+          visited.add(siblingId);
+          queue.push(siblingId);
+        }
+      }
+
+      for (const fromId of component) {
+        for (const toId of component) {
+          if (fromId !== toId) this.addSiblingEdge(fromId, toId);
+        }
+      }
+
+      components.push(component);
+    }
+
+    return components;
+  }
+
+  /**
+   * Shona parenthood is classificatory and reciprocal across a sibling set:
+   * every known parent of one sibling is a parent of the whole sibling group.
+   * Spouses of explicit parents are already present in parentsByChild, so the
+   * same propagation includes social mothers and fathers without storing
+   * additional source relationships.
+   */
+  private propagateParentsAcrossSiblingComponents(
+    components: readonly (readonly string[])[],
+  ) {
+    for (const component of components) {
+      const parentIds = new Set<string>();
+      for (const siblingId of component) {
+        for (const parentId of this.parentsByChild.get(siblingId) ?? []) {
+          parentIds.add(parentId);
+        }
+      }
+
+      for (const siblingId of component) {
+        for (const parentId of parentIds) {
+          this.addParentChildEdges(parentId, siblingId);
+        }
+      }
+    }
+  }
+
   private addEdge(
     from: string,
     to: string,
@@ -267,14 +363,20 @@ export class FamilyTreeGraph {
     edges.push({ to, step });
   }
 
-  private ageKey(referenceId: string, targetId: string) {
-    return `${referenceId}>${targetId}`;
-  }
+  private hasOlderPath(olderId: string, youngerId: string) {
+    if (olderId === youngerId) return false;
+    const queue = [...(this.olderThan.get(olderId) ?? [])];
+    const visited = new Set<string>();
 
-  private invertAge(age: RelativeAge): RelativeAge {
-    if (age === "older") return "younger";
-    if (age === "younger") return "older";
-    return age;
+    for (let cursor = 0; cursor < queue.length; cursor += 1) {
+      const currentId = queue[cursor];
+      if (currentId === youngerId) return true;
+      if (visited.has(currentId)) continue;
+      visited.add(currentId);
+      queue.push(...(this.olderThan.get(currentId) ?? []));
+    }
+
+    return false;
   }
 
   private patrilineageAnchors(personId: string): Set<string> {
