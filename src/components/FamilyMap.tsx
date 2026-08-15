@@ -10,11 +10,10 @@ import {
   type Edge,
   type Node,
   type NodeChange,
-  type ReactFlowInstance,
 } from "@xyflow/react";
 
 import dagre from "@dagrejs/dagre";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import {
   createInMemoryFamilyDatabase,
@@ -30,7 +29,13 @@ import {
   type FamilyUnionNodeData,
 } from "./FamilyUnionNode";
 import { PersonNode, type PersonNodeData } from "./PersonNode";
+import {
+  affectsFamilyLayout,
+  isDottedParentChildRelationship,
+  isVisibleFamilyRelationship,
+} from "./family-map-relationships";
 import { deriveFamilyUnions } from "./family-unions";
+import { mergeFlowNodesPreservingState } from "./flow-node-state";
 
 const nodeTypes = {
   person: PersonNode,
@@ -48,47 +53,27 @@ const EDGE_COLORS: Record<Relationship["type"], string> = {
 };
 
 const EDGE_LEGEND: Array<{
+  id: string;
   type: Relationship["type"];
   label: string;
+  dotted?: boolean;
 }> = [
-  { type: "SPOUSE_OF", label: "Married spouses" },
-  { type: "SIBLING_OF", label: "Sibling" },
-  { type: "PARENT_OF", label: "Biological parent–child" },
+  { id: "married", type: "SPOUSE_OF", label: "Married spouses" },
+  {
+    id: "biological-parent",
+    type: "PARENT_OF",
+    label: "Biological parent–child",
+  },
+  {
+    id: "functional-parent",
+    type: "PARENT_OF",
+    label: "Non-biological parent–child",
+    dotted: true,
+  },
 ];
-
-function isVisibleRelationship(relationship: Relationship) {
-  if (relationship.type === "PARENT_OF") {
-    return relationship.biological === true;
-  }
-  if (relationship.type === "SPOUSE_OF") {
-    return relationship.married === true;
-  }
-  return true;
-}
 
 function fullName(person: Person) {
   return `${person.firstName} ${person.surname}`;
-}
-
-function familyStructureKey(
-  people: readonly Person[],
-  relationships: readonly Relationship[],
-) {
-  const personKey = people
-    .map((person) => person.id)
-    .sort()
-    .join("|");
-  const relationshipKey = relationships
-    .map((relationship) =>
-      relationship.type === "SIBLING_OF"
-        ? `${relationship.type}:${relationship.personAId}:${relationship.personBId}:${relationship.seniority}`
-        : relationship.type === "PARENT_OF"
-          ? `${relationship.type}:${relationship.personAId}:${relationship.personBId}:${relationship.biological === true ? "biological" : "unqualified"}:${relationship.biologicalUnionId ?? "no-union"}`
-          : `${relationship.type}:${relationship.personAId}:${relationship.personBId}:${relationship.married === true ? "married" : "not-married"}`,
-    )
-    .sort()
-    .join("|");
-  return `${personKey}::${relationshipKey}`;
 }
 
 function nodeCenter(node: Node) {
@@ -217,7 +202,7 @@ function buildFlowElements(
   // rank. Biological children descend from the junction independently of the
   // pair's marriage state.
   for (const relationship of relationships) {
-    if (!isVisibleRelationship(relationship)) continue;
+    if (!affectsFamilyLayout(relationship)) continue;
     if (joinedParentRelationshipIds.has(relationship.id)) continue;
     if (unionByMarriageId.has(relationship.id)) continue;
     graph.setEdge(relationship.personAId, relationship.personBId);
@@ -250,7 +235,7 @@ function buildFlowElements(
   const edges: Edge[] = relationships
     .filter(
       (relationship) =>
-        isVisibleRelationship(relationship) &&
+        isVisibleFamilyRelationship(relationship) &&
         !joinedParentRelationshipIds.has(relationship.id) &&
         !unionByMarriageId.has(relationship.id),
     )
@@ -262,6 +247,9 @@ function buildFlowElements(
       style: {
         stroke: EDGE_COLORS[relationship.type],
         strokeWidth: 3,
+        ...(isDottedParentChildRelationship(relationship)
+          ? { strokeDasharray: "1 7", strokeLinecap: "round" }
+          : {}),
       },
     }));
 
@@ -340,13 +328,8 @@ function FlowCanvas({
   const [nodes, setNodes] = useNodesState(initialElements.nodes);
 
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialElements.edges);
-  const flowInstance = useRef<ReactFlowInstance>(null);
-  const previousPersonCount = useRef(people.length);
-  const structureKey = familyStructureKey(people, relationships);
-  const previousStructureKey = useRef(structureKey);
 
   useEffect(() => {
-    const structureChanged = structureKey !== previousStructureKey.current;
     const nextElements = buildFlowElements(
       egoId,
       people,
@@ -354,63 +337,21 @@ function FlowCanvas({
       onEdit,
     );
 
-    setNodes((currentNodes) => {
-      const currentById = new Map(currentNodes.map((node) => [node.id, node]));
-      const anchor = nextElements.nodes.find((node) =>
-        currentById.has(node.id),
-      );
-      const currentAnchor = anchor ? currentById.get(anchor.id) : undefined;
-      const layoutOffset =
-        anchor && currentAnchor
-          ? {
-              x: currentAnchor.position.x - anchor.position.x,
-              y: currentAnchor.position.y - anchor.position.y,
-            }
-          : { x: 0, y: 0 };
-
-      if (structureChanged) {
-        return alignFamilyUnionNodes(
-          nextElements.nodes.map((nextNode) => ({
-            ...nextNode,
-            position: {
-              x: nextNode.position.x + layoutOffset.x,
-              y: nextNode.position.y + layoutOffset.y,
-            },
-          })),
-        );
-      }
-
-      const mergedNodes = nextElements.nodes.map((nextNode) => {
-        const current = currentById.get(nextNode.id);
-        if (nextNode.type === "familyUnion") return nextNode;
-        if (!current) {
-          return {
-            ...nextNode,
-            position: {
-              x: nextNode.position.x + layoutOffset.x,
-              y: nextNode.position.y + layoutOffset.y,
-            },
-          };
-        }
-
-        return {
-          ...current,
-          type: nextNode.type,
-          data: nextNode.data,
-        };
-      });
-
-      return alignFamilyUnionNodes(mergedNodes);
-    });
+    setNodes((currentNodes) =>
+      alignFamilyUnionNodes(
+        mergeFlowNodesPreservingState(
+          currentNodes,
+          nextElements.nodes,
+          nextElements.edges,
+          {
+            personWidth: NODE_WIDTH,
+            personHeight: NODE_HEIGHT,
+            unionSize: UNION_SIZE,
+          },
+        ),
+      ),
+    );
     setEdges(nextElements.edges);
-
-    if (people.length > previousPersonCount.current) {
-      requestAnimationFrame(() => {
-        void flowInstance.current?.fitView({ duration: 250, padding: 0.2 });
-      });
-    }
-    previousPersonCount.current = people.length;
-    previousStructureKey.current = structureKey;
   }, [
     egoId,
     onEdit,
@@ -418,7 +359,6 @@ function FlowCanvas({
     relationships,
     setEdges,
     setNodes,
-    structureKey,
   ]);
 
   const handleNodesChange = useCallback(
@@ -437,9 +377,6 @@ function FlowCanvas({
       nodeTypes={nodeTypes}
       onNodesChange={handleNodesChange}
       onEdgesChange={onEdgesChange}
-      onInit={(instance) => {
-        flowInstance.current = instance;
-      }}
       fitView
     >
       <Background />
@@ -516,12 +453,15 @@ export default function FamilyMap() {
           aria-label="Relationship connection colors"
           className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-600"
         >
-          {EDGE_LEGEND.map(({ type, label }) => (
-            <span key={type} className="inline-flex items-center gap-1.5">
+          {EDGE_LEGEND.map(({ id, type, label, dotted }) => (
+            <span key={id} className="inline-flex items-center gap-1.5">
               <span
                 aria-hidden="true"
-                className="h-0.5 w-6 rounded-full"
-                style={{ backgroundColor: EDGE_COLORS[type] }}
+                className="h-0 w-6 border-t-2"
+                style={{
+                  borderColor: EDGE_COLORS[type],
+                  borderTopStyle: dotted ? "dotted" : "solid",
+                }}
               />
               {label}
             </span>

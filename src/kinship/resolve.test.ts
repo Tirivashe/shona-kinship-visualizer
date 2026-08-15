@@ -20,6 +20,22 @@ function resolve(people: Person[], query: KinQuery) {
   return resolverFor(people).resolve(query);
 }
 
+function maternalUncleDaughterFamily() {
+  return [
+    person("maternal-grandfather", "M"),
+    person("mother", "F", { fatherId: "maternal-grandfather" }),
+    person("maternal-uncle", "M", {
+      fatherId: "maternal-grandfather",
+    }),
+    person("ego", "M", { motherId: "mother" }),
+    person("maternal-uncles-daughter", "F", {
+      fatherId: "maternal-uncle",
+    }),
+    person("ego-son", "M", { fatherId: "ego" }),
+    person("ego-daughter", "F", { fatherId: "ego" }),
+  ];
+}
+
 describe("FamilyTreeGraph BFS and K-Path canonicalization", () => {
   const people = [
     person("gf", "M"),
@@ -384,6 +400,41 @@ describe("three-axis Shona algebra", () => {
     expect(result.traversal?.canonicalPath).toEqual(["M", "B", "D"]);
     expect(result.title).toBe("Mainini");
   });
+
+  it.each([
+    ["ego-son", "S"],
+    ["ego-daughter", "D"],
+  ] as const)(
+    "resolves a male ego's maternal uncle's daughter to his child %s as Muzukuru",
+    (targetId, childStep) => {
+      const result = resolve(maternalUncleDaughterFamily(), {
+        egoId: "maternal-uncles-daughter",
+        targetId,
+      });
+
+      expect(result.traversal?.canonicalPath).toEqual([
+        "F",
+        "Z",
+        "S",
+        childStep,
+      ]);
+      expect(result.title).toBe("Muzukuru");
+    },
+  );
+
+  it.each(["ego-son", "ego-daughter"] as const)(
+    "resolves a male ego's child %s to his maternal uncle's daughter as Ambuya/Mbuya",
+    (egoId) => {
+      const result = resolve(maternalUncleDaughterFamily(), {
+        egoId,
+        targetId: "maternal-uncles-daughter",
+      });
+
+      expect(result.traversal?.canonicalPath).toEqual(["F", "M", "B", "D"]);
+      expect(result.title).toBe("Ambuya");
+      expect(result.aliases).toContain("Mbuya");
+    },
+  );
 
   it.each([
     ["grandmothers-brother", "M", "B", "Sekuru"],
@@ -1467,7 +1518,54 @@ describe("three-axis Shona algebra", () => {
     expect(bamkuru.title).toBe("Bamkuru");
   });
 
-  it("projects Hanzvadzi spouses by target sex", () => {
+  it.each([
+    [
+      "ego-wife",
+      "maternal-uncles-wife",
+      ["H", "M", "B", "W"],
+      "Mbuya",
+      "Ambuya",
+    ],
+    [
+      "maternal-uncles-wife",
+      "ego-wife",
+      ["H", "Z", "S", "W"],
+      "Muzukuru",
+      undefined,
+    ],
+  ] as const)(
+    "resolves the relationship from %s to %s",
+    (egoId, targetId, canonicalPath, expectedTitle, expectedAlias) => {
+      const people = [
+        person("maternal-grandfather", "M"),
+        person("mother", "F", {
+          fatherId: "maternal-grandfather",
+          birthOrder: 1,
+        }),
+        person("maternal-uncle", "M", {
+          fatherId: "maternal-grandfather",
+          spouseIds: ["maternal-uncles-wife"],
+          birthOrder: 2,
+        }),
+        person("maternal-uncles-wife", "F", {
+          spouseIds: ["maternal-uncle"],
+        }),
+        person("male-ego", "M", {
+          motherId: "mother",
+          spouseIds: ["ego-wife"],
+        }),
+        person("ego-wife", "F", { spouseIds: ["male-ego"] }),
+      ];
+
+      const result = resolve(people, { egoId, targetId });
+
+      expect(result.traversal?.canonicalPath).toEqual(canonicalPath);
+      expect(result.title).toBe(expectedTitle);
+      if (expectedAlias) expect(result.aliases).toContain(expectedAlias);
+    },
+  );
+
+  it("projects a female ego's younger brother's wife to Muroora or Maiguru", () => {
     const people = [
       person("father", "M"),
       person("male-ego", "M", { fatherId: "father" }),
@@ -1476,10 +1574,14 @@ describe("three-axis Shona algebra", () => {
         spouseIds: ["sisters-husband"],
       }),
       person("sisters-husband", "M", { spouseIds: ["sister"] }),
-      person("female-ego", "F", { fatherId: "father" }),
+      person("female-ego", "F", {
+        fatherId: "father",
+        birthOrder: 1,
+      }),
       person("brother", "M", {
         fatherId: "father",
         spouseIds: ["brothers-wife"],
+        birthOrder: 2,
       }),
       person("brothers-wife", "F", { spouseIds: ["brother"] }),
     ];
@@ -1487,9 +1589,20 @@ describe("three-axis Shona algebra", () => {
     expect(
       resolve(people, { egoId: "male-ego", targetId: "sisters-husband" }).title,
     ).toBe("Tsano");
-    expect(
-      resolve(people, { egoId: "female-ego", targetId: "brothers-wife" }).title,
-    ).toBe("Maiguru");
+    const brothersWife = resolve(people, {
+      egoId: "female-ego",
+      targetId: "brothers-wife",
+    });
+    expect(brothersWife.traversal?.canonicalPath).toEqual(["B", "W"]);
+    expect(brothersWife.title).toBe("Muroora");
+    expect(brothersWife.aliases).toContain("Maiguru");
+    expect(brothersWife.ruleId).toBe("AFFINAL_FEMALE_EGO_BROTHERS_WIFE");
+
+    const reciprocal = resolve(people, {
+      egoId: "brothers-wife",
+      targetId: "female-ego",
+    });
+    expect(reciprocal.title).toBe("Tete");
   });
 
   it("projects the wife-giving terms recursively over a patrilineage", () => {

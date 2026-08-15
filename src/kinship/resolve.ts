@@ -12,6 +12,7 @@ import {
   type SupplementalSibling,
 } from "./family-tree-graph";
 import { KinshipResolver } from "./kinship-resolver";
+import { formatKinshipTitle } from "./kinship-title";
 import type {
   KinshipResolution,
   KStep,
@@ -104,7 +105,7 @@ function toLegacyResult(resolution: KinshipResolution): KinshipResult {
   return {
     status:
       resolution.status === "ambiguous" ? "ambiguous" : resolution.status,
-    title: resolution.title,
+    title: formatKinshipTitle(resolution.title, resolution.aliases),
     description: resolution.description,
     aliases: resolution.aliases,
     socialTerm: resolution.socialTerm,

@@ -277,6 +277,18 @@ export class AffinalProjector {
     }
 
     if (source.title === "Hanzvadzi") {
+      if (context.egoSex === "F" && marriageStep === "W") {
+        return known(
+          "AFFINAL_FEMALE_EGO_BROTHERS_WIFE",
+          "Muroora",
+          "The wife of your brother; Muroora by clan alignment and Maiguru as an alternative kinship title.",
+          "Vanyarikani",
+          reducedPath,
+          `A female ego's brother's wife enters the family as Muroora and may also be addressed as Maiguru.${sourceRule}`,
+          ["Maiguru"],
+        );
+      }
+
       return context.targetSex === "M"
         ? known(
             "AFFINAL_HANZVADZI_MALE_SPOUSE",

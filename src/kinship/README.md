@@ -44,6 +44,14 @@ older React demo records. New integrations should instantiate
   `Muzukuru` remain `Muzukuru`, whether that starting class came from a
   grandchild, paternal-aunt child, opposite-sex sibling's child, or another
   supported projection.
+- `Mwana.(S|D) -> Muzukuru` enters the reciprocal grandchild class without
+  depending on the raw path which originally produced `Mwana`. Later
+  descendants then continue through the recursive `Muzukuru` rule above.
+- A leading child-to-parent edge composes with the parent's already-resolved
+  classificatory-parent term. Thus, if a parent calls someone `Mainini`, the
+  child calls that woman `Ambuya` (alias `Mbuya`); a male target in the same
+  structural position is `Sekuru`. This handles Omaha-skewed paths without a
+  lookup entry for the complete path.
 - Reciprocally, `(Sekuru|Ambuya|Mbuya).(F|M)*` remains in the grandparent
   class at every higher ancestral generation. The final ancestor's sex selects
   `Sekuru` for a man and `Ambuya` (alias `Mbuya`) for a woman. This is resolved
@@ -105,8 +113,10 @@ already-resolved fundamental kin class. This keeps the algebra compositional:
 - `Muzukuru` remains `Muzukuru` across the marriage;
 - `Sekuru` and `Mbuya` project reciprocally to `Mbuya` and `Sekuru`;
 - `Tete` projects to a male spouse as `Bamkuru`;
-- `Hanzvadzi` projects to `Tsano` for a male spouse and `Maiguru` for a female
-  spouse.
+- A male spouse of `Hanzvadzi` projects to `Tsano`. For a female Ego, her
+  brother's wife is principally `Muroora`, because the wife marries into Ego's
+  family, with `Maiguru` retained as a valid alternative title; reciprocally,
+  the wife calls her husband's sister `Tete`.
 
 The source is resolved recursively through the ordinary BFS and reduction
 pipeline before the marriage projection is applied. The recursion always uses
@@ -122,7 +132,12 @@ The same projection covers a child's spouse and that in-law's family:
   `Muroora`, while males of that wife-giving line resolve to `Tezvara`;
 - children resolve through classificatory co-parenthood as `Muzukuru`;
 - piblings and cross-cousins without a narrower verified title retain the
-  explicit `Hama yeVakuwasha` or `Hama dzeMuroora` side classification.
+explicit `Hama yeVakuwasha` or `Hama dzeMuroora` side classification.
+
+The UI-compatible resolver keeps those principal and alternative terms
+structured separately, but concatenates them for display with ` / `. Thus a
+female Ego's younger brother's wife is displayed as `Muroora / Maiguru`, while
+algebraic matching continues to use the principal `Muroora` class.
 
 The projector composes across another marriage boundary only when the prefix
 has already resolved to one of the explicit fundamental classes above. Other

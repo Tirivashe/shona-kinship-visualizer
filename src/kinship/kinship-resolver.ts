@@ -22,6 +22,19 @@ function isConsanguineal(path: readonly KStep[]) {
   return path.every((step) => step !== "H" && step !== "W");
 }
 
+const CLASSIFICATORY_PARENT_TITLES = new Set([
+  "Baba",
+  "Mai",
+  "Bamkuru",
+  "Bamnini",
+  "Maiguru",
+  "Mainini",
+  "Tete",
+  "Sekuru",
+  "Ambuya",
+  "Mbuya",
+]);
+
 function known(ruleId: string, title: string, description: string) {
   return { status: "known" as const, ruleId, title, description };
 }
@@ -415,7 +428,7 @@ export class KinshipResolver {
 
     const muzukuruDescendant = canonicalRule
       ? undefined
-      : this.resolveMuzukuruDescendant(traversal, context);
+      : this.resolveMuzukuruLineageDescendant(traversal, context);
 
     if (muzukuruDescendant) {
       return {
@@ -424,7 +437,7 @@ export class KinshipResolver {
         traversal,
         reducedPath: traversal.canonicalPath,
         derivation: [
-          "MUZUKURU_DESCENDANT: a Muzukuru's descendants remain in the Muzukuru class.",
+          "MUZUKURU_LINEAGE_DESCENDANT: a child of Mwana enters the Muzukuru class, whose later descendants remain Muzukuru.",
         ],
       };
     }
@@ -447,6 +460,23 @@ export class KinshipResolver {
     const rule = canonicalRule ?? this.bestRule(reduction.reducedPath, context);
 
     if (!rule?.resolve) {
+      const grandparentProjection = this.resolveParentClassAsGrandparent(
+        traversal,
+        context,
+      );
+      if (grandparentProjection) {
+        return {
+          priority: 965,
+          ...grandparentProjection,
+          traversal,
+          reducedPath: reduction.reducedPath,
+          derivation: [
+            ...reduction.derivation,
+            "PARENT_CLASS_TO_GRANDPARENT: a child's parent's classificatory parent becomes the child's grandparent class.",
+          ],
+        };
+      }
+
       return {
         priority: 0,
         status: "unmapped" as const,
@@ -468,6 +498,57 @@ export class KinshipResolver {
       reducedPath: reduction.reducedPath,
       derivation: [...reduction.derivation, `${rule.id}: ${rule.explanation}`],
     };
+  }
+
+  /**
+   * Compose a leading parent edge with the relationship already calculated
+   * from that parent. A person in the parent's classificatory-parent class is
+   * in the child's grandparent class, even when Omaha skewing means the raw
+   * genealogy is not a simple F.F or M.M path.
+   */
+  private resolveParentClassAsGrandparent(
+    traversal: TraversalResult,
+    context: Context,
+  ) {
+    const firstStep = traversal.rawPath[0];
+    if (
+      traversal.rawPath.length < 2 ||
+      (firstStep !== "F" && firstStep !== "M") ||
+      !isConsanguineal(traversal.canonicalPath)
+    ) {
+      return undefined;
+    }
+
+    const parentId = traversal.personIds[1];
+    if (!parentId || parentId === context.targetId) return undefined;
+
+    const parentResolution = this.resolve({
+      egoId: parentId,
+      targetId: context.targetId,
+      relativeAge: this.graph.relativeAge(parentId, context.targetId),
+    });
+
+    if (
+      parentResolution.status !== "known" ||
+      !CLASSIFICATORY_PARENT_TITLES.has(parentResolution.title)
+    ) {
+      return undefined;
+    }
+
+    return context.targetSex === "M"
+      ? known(
+          "PARENT_CLASS_MALE_GRANDPARENT",
+          "Sekuru",
+          "Your parent's male classificatory parent is in your Sekuru class.",
+        )
+      : {
+          ...known(
+            "PARENT_CLASS_FEMALE_GRANDPARENT",
+            "Ambuya",
+            "Your parent's female classificatory parent is in your Ambuya or Mbuya class.",
+          ),
+          aliases: ["Mbuya"],
+        };
   }
 
   /**
@@ -523,12 +604,13 @@ export class KinshipResolver {
   }
 
   /**
-   * Propagate the Muzukuru class through any number of child edges. Resolving
-   * only the target's parent keeps this rule recursive and path-independent:
-   * each call operates on a strictly shorter traversal and therefore
-   * terminates at the original relationship that established Muzukuru.
+   * Enter Muzukuru from a child of Mwana, then propagate Muzukuru through any
+   * number of later child edges. Resolving only the target's parent keeps this
+   * rule recursive and path-independent: each call operates on a strictly
+   * shorter traversal and therefore terminates at the relationship that
+   * established Mwana or Muzukuru.
    */
-  private resolveMuzukuruDescendant(
+  private resolveMuzukuruLineageDescendant(
     traversal: TraversalResult,
     context: Context,
   ) {
@@ -550,12 +632,19 @@ export class KinshipResolver {
       relativeAge: this.graph.relativeAge(context.egoId, parentId),
     });
 
-    if (
-      parentResolution.status !== "known" ||
-      parentResolution.title !== "Muzukuru"
-    ) {
+    if (parentResolution.status !== "known") {
       return undefined;
     }
+
+    if (parentResolution.title === "Mwana") {
+      return known(
+        "MWANA_CHILD_TO_MUZUKURU",
+        "Muzukuru",
+        "A child of your Mwana enters your Muzukuru category.",
+      );
+    }
+
+    if (parentResolution.title !== "Muzukuru") return undefined;
 
     return known(
       "MUZUKURU_DESCENDANT",
