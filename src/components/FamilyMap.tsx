@@ -13,14 +13,17 @@ import {
 } from "@xyflow/react";
 
 import dagre from "@dagrejs/dagre";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   createInMemoryFamilyDatabase,
   type NewCharacterInput,
 } from "@/data/in-memory-family-database";
 
-import { resolveKinship } from "@/kinship/resolve";
+import {
+  createKinshipSession,
+  type KinshipSession,
+} from "@/kinship/resolve";
 import type { Person, Relationship } from "@/types/family";
 
 import { CharacterDialog } from "./AddCharacterDialog";
@@ -116,6 +119,8 @@ function buildFlowElements(
   people: Person[],
   relationships: Relationship[],
   onEdit: (personId: string) => void,
+  onDelete: (personId: string) => void,
+  kinshipSession: KinshipSession,
 ): {
   nodes: Node[];
   edges: Edge[];
@@ -129,12 +134,7 @@ function buildFlowElements(
   });
 
   const personNodes: Node[] = people.map((person) => {
-    const relation = resolveKinship(
-      egoId,
-      person.id,
-      people,
-      relationships,
-    );
+    const relation = kinshipSession.resolve(egoId, person.id);
 
     const data: PersonNodeData = {
       name: fullName(person),
@@ -143,6 +143,7 @@ function buildFlowElements(
       isEgo: person.id === egoId,
       photoUrl: person.photoUrl,
       onEdit: () => onEdit(person.id),
+      onDelete: () => onDelete(person.id),
     };
 
     graph.setNode(person.id, {
@@ -310,6 +311,7 @@ interface FlowCanvasProps {
   people: Person[];
   relationships: Relationship[];
   onEdit: (personId: string) => void;
+  onDelete: (personId: string) => void;
 }
 
 function FlowCanvas({
@@ -317,12 +319,25 @@ function FlowCanvas({
   people,
   relationships,
   onEdit,
+  onDelete,
 }: FlowCanvasProps) {
+  const kinshipSession = useMemo(
+    () => createKinshipSession(people, relationships),
+    [people, relationships],
+  );
+
   // Capture the initial layout once. Subsequent ego changes update node data
   // without replacing the nodes, so dragged positions and viewport state stay
   // intact.
   const [initialElements] = useState(() =>
-    buildFlowElements(egoId, people, relationships, onEdit),
+    buildFlowElements(
+      egoId,
+      people,
+      relationships,
+      onEdit,
+      onDelete,
+      kinshipSession,
+    ),
   );
 
   const [nodes, setNodes] = useNodesState(initialElements.nodes);
@@ -335,6 +350,8 @@ function FlowCanvas({
       people,
       relationships,
       onEdit,
+      onDelete,
+      kinshipSession,
     );
 
     setNodes((currentNodes) =>
@@ -354,6 +371,8 @@ function FlowCanvas({
     setEdges(nextElements.edges);
   }, [
     egoId,
+    kinshipSession,
+    onDelete,
     onEdit,
     people,
     relationships,
@@ -396,6 +415,31 @@ export default function FamilyMap() {
   const editCharacter = useCallback((personId: string) => {
     setCharacterDialog({ mode: "edit", personId });
   }, []);
+
+  const deleteCharacter = useCallback(
+    (personId: string) => {
+      const person = family.people.find((candidate) => candidate.id === personId);
+      if (!person) return;
+
+      const confirmed = window.confirm(
+        `Delete ${fullName(person)}? Their family connections will also be removed.`,
+      );
+      if (!confirmed) return;
+
+      database.deleteCharacter(personId);
+      const nextFamily = database.snapshot();
+      setFamily(nextFamily);
+      setEgoId((current) =>
+        current === personId ? (nextFamily.people[0]?.id ?? "") : current,
+      );
+      setCharacterDialog((current) =>
+        current?.mode === "edit" && current.personId === personId
+          ? undefined
+          : current,
+      );
+    },
+    [database, family.people],
+  );
 
   function saveCharacter(input: NewCharacterInput) {
     const person =
@@ -475,6 +519,7 @@ export default function FamilyMap() {
           people={family.people}
           relationships={family.relationships}
           onEdit={editCharacter}
+          onDelete={deleteCharacter}
         />
       </div>
 

@@ -350,4 +350,83 @@ describe("InMemoryFamilyDatabase", () => {
       revision: 0,
     });
   });
+
+  it("deletes a character and every relationship that references them", () => {
+    const people: Person[] = [
+      { id: "mother", firstName: "Mai", surname: "Moyo", sex: "female" },
+      { id: "father", firstName: "Baba", surname: "Moyo", sex: "male" },
+      { id: "child", firstName: "Mwana", surname: "Moyo", sex: "male" },
+      { id: "aunt", firstName: "Tete", surname: "Moyo", sex: "female" },
+    ];
+    const relationships: Relationship[] = [
+      {
+        id: "mother-child",
+        type: "PARENT_OF",
+        personAId: "mother",
+        personBId: "child",
+        biological: true,
+      },
+      {
+        id: "father-child",
+        type: "PARENT_OF",
+        personAId: "father",
+        personBId: "child",
+        biological: true,
+      },
+      {
+        id: "parents",
+        type: "SPOUSE_OF",
+        personAId: "mother",
+        personBId: "father",
+        married: true,
+      },
+      {
+        id: "mother-aunt",
+        type: "SIBLING_OF",
+        personAId: "mother",
+        personBId: "aunt",
+        seniority: "A_OLDER",
+      },
+    ];
+    const database = new InMemoryFamilyDatabase(people, relationships);
+
+    expect(database.deleteCharacter("mother")).toEqual(people[0]);
+
+    const snapshot = database.snapshot();
+    expect(snapshot.people.map((person) => person.id)).toEqual([
+      "father",
+      "child",
+      "aunt",
+    ]);
+    expect(snapshot.relationships).toEqual([
+      expect.objectContaining({
+        id: "father-child",
+        personAId: "father",
+        personBId: "child",
+      }),
+    ]);
+    expect(snapshot.relationships[0]).not.toHaveProperty(
+      "biologicalUnionId",
+    );
+    expect(snapshot.revision).toBe(1);
+  });
+
+  it("rejects deletion of a missing character without changing the database", () => {
+    const person: Person = {
+      id: "ego",
+      firstName: "Tiri",
+      surname: "Moyo",
+      sex: "male",
+    };
+    const database = new InMemoryFamilyDatabase([person]);
+
+    expect(() => database.deleteCharacter("missing")).toThrow(
+      "The selected character no longer exists.",
+    );
+    expect(database.snapshot()).toEqual({
+      people: [person],
+      relationships: [],
+      revision: 0,
+    });
+  });
 });

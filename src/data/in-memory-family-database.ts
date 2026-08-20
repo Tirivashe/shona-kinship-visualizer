@@ -364,6 +364,27 @@ export class InMemoryFamilyDatabase {
     return clonePerson(person);
   }
 
+  deleteCharacter(personId: string): Person {
+    const person = this.people.get(personId);
+    if (!person) {
+      throw new Error("The selected character no longer exists.");
+    }
+
+    this.people.delete(personId);
+    for (const [relationshipId, relationship] of this.relationships) {
+      if (
+        relationship.personAId === personId ||
+        relationship.personBId === personId
+      ) {
+        this.relationships.delete(relationshipId);
+      }
+    }
+    this.reconcileBiologicalUnionIds();
+    this.revision += 1;
+
+    return clonePerson(person);
+  }
+
   private validateCharacterInput(
     input: NewCharacterInput,
     connectionRequired: boolean,

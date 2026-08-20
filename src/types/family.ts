@@ -31,7 +31,11 @@ export type Relationship =
       type: "SPOUSE_OF";
       personAId: string;
       personBId: string;
-      /** Symmetric marriage state used by the family-tree renderer. */
+      /**
+       * Symmetric ceremonial/legal marriage state used by the renderer.
+       * The SPOUSE_OF record itself declares a culturally recognized union
+       * and therefore creates affinal kin even when this display flag is false.
+       */
       married?: boolean;
     }
   | {
@@ -64,8 +68,9 @@ export interface RelationshipPath {
 export type KinshipStatus =
   | "known"
   | "ambiguous"
+  | "broad"
   | "contextual"
-  | "unmapped"
+  | "invalid"
   | "unrelated";
 
 export interface KinshipResult {
@@ -78,6 +83,15 @@ export interface KinshipResult {
 
   /** Stable identifier for the cultural rule that produced the result. */
   ruleId?: string;
+
+  specificity?: KinshipSpecificity;
+
+  /** Engine-level distinction for homonymous kinship titles. */
+  kinClass?: KinClass;
+  /** Positions in the primary patrilineal/matrilineal hierarchy. */
+  coreClassifications?: CoreKinClass[];
+  provenance?: RuleProvenance;
+  validationIssues?: GraphValidationIssue[];
 
   /** Alternative spellings or forms which are not the canonical display term. */
   aliases?: string[];
@@ -95,3 +109,10 @@ export interface KinshipResult {
   /** Human-readable record of the equivalence rules used during inference. */
   derivation?: string[];
 }
+import type {
+  CoreKinClass,
+  GraphValidationIssue,
+  KinClass,
+  KinshipSpecificity,
+  RuleProvenance,
+} from "@/kinship/model";

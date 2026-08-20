@@ -1,15 +1,24 @@
 import { AffinalProjector } from "./affinal-projector";
+import { attachCoreClassifications } from "./core-classification";
 import { FamilyTreeGraph } from "./family-tree-graph";
+import {
+  KinshipComposer,
+  type ComposedKinshipResolution,
+} from "./kinship-composer";
+import {
+  fundamentalStepForClass,
+  projectReciprocalClass,
+} from "./kin-class-algebra";
+import { terminalSiblingSeniority } from "./model";
 import type {
   Context,
+  KinClass,
   KinQuery,
   KinRule,
   KinshipResolution,
   KStep,
-  RelativeAge,
   TraversalResult,
 } from "./model";
-import { formatKPath } from "./model";
 import { PathReducer } from "./path-reducer";
 
 function exact(expected: readonly KStep[]) {
@@ -22,21 +31,42 @@ function isConsanguineal(path: readonly KStep[]) {
   return path.every((step) => step !== "H" && step !== "W");
 }
 
-const CLASSIFICATORY_PARENT_TITLES = new Set([
-  "Baba",
-  "Mai",
-  "Bamkuru",
-  "Bamnini",
-  "Maiguru",
-  "Mainini",
-  "Tete",
-  "Sekuru",
-  "Ambuya",
-  "Mbuya",
+const CLASSIFICATORY_PARENT_CLASSES = new Set<KinClass>([
+  "CLASSIFICATORY_FATHER",
+  "CLASSIFICATORY_MOTHER",
+  "PATERNAL_AUNT",
+  "GRANDFATHER",
+  "GRANDMOTHER",
 ]);
 
-function known(ruleId: string, title: string, description: string) {
-  return { status: "known" as const, ruleId, title, description };
+const SPOUSE_INHERITED_GENERATIONAL_CLASSES = new Set<KinClass>([
+  "CLASSIFICATORY_CHILD",
+  "MUZUKURU",
+  "GRANDFATHER",
+  "GRANDMOTHER",
+]);
+
+const SPECIFICITY_RANK = {
+  broad: 0,
+  "alliance-side": 1,
+  classificatory: 2,
+  exact: 3,
+} as const;
+
+function known(
+  ruleId: string,
+  title: string,
+  description: string,
+  kinClass?: KinClass,
+) {
+  return {
+    status: "known" as const,
+    specificity: "exact" as const,
+    ruleId,
+    title,
+    description,
+    kinClass,
+  };
 }
 
 function ambiguous(
@@ -44,13 +74,16 @@ function ambiguous(
   title: string,
   description: string,
   possibilities: string[],
+  kinClass?: KinClass,
 ) {
   return {
     status: "ambiguous" as const,
+    specificity: "exact" as const,
     ruleId,
     title,
     description,
     possibilities,
+    kinClass,
   };
 }
 
@@ -60,19 +93,31 @@ const rules: KinRule[] = [
     axis: "contextual",
     priority: 1000,
     matches: exact([]),
-    resolve: () => known("SELF", "You", "This is the selected person."),
+    resolve: () =>
+      known("SELF", "You", "This is the selected person.", "SELF"),
     explanation: "Ego and target are the same person.",
   },
   {
     id: "MATRILATERAL_UNCLE_DAUGHTER",
     axis: "M",
     priority: 990,
+    provenance: {
+      sources: [
+        "Rose Jaji, Women, gender fluidity and Shona kinship structure in Zimbabwe, Anthropology Southern Africa 47(4), 2025, DOI: 10.1080/23323256.2025.2468523",
+        "Rose Jaji, Kubereka: singleness, childlessness and non-biological mothering in Shona culture, Journal of Gender Studies, 2026, DOI: 10.1080/09589236.2026.2637530",
+      ],
+      confidence: "attested",
+      sexCondition: "sex-invariant",
+      scope:
+        "The sources describe a mother's brother's daughter as occupying a mother/Mainini role without conditioning the relationship on Ego's sex.",
+    },
     matches: exact(["M", "B", "D"]),
     resolve: () =>
       known(
         "MATRILATERAL_UNCLE_DAUGHTER",
         "Mainini",
         "Your maternal uncle's daughter, structurally a junior mother.",
+        "CLASSIFICATORY_MOTHER",
       ),
     explanation: "M.B.D is structurally elevated to the junior-mother class.",
   },
@@ -90,6 +135,7 @@ const rules: KinRule[] = [
         "SEKURU_HAAPERI",
         "Sekuru",
         "Your maternal-uncle lineage; Sekuru continues recursively down its male line.",
+        "GRANDFATHER",
       ),
     explanation: "Sekuru haaperi: M.B.S* remains Sekuru.",
   },
@@ -102,20 +148,15 @@ const rules: KinRule[] = [
       path[0] === "F" &&
       path[1] === "Z" &&
       (path[2] === "S" || path[2] === "D"),
-    resolve: (_path, context) =>
-      context.egoSex === "F"
-        ? known(
-            "PATERNAL_AUNT_CHILD_FEMALE_EGO",
-            "Mwana",
-            "Your paternal aunt's child, viewed by a female ego.",
-          )
-        : known(
-            "PATERNAL_AUNT_CHILD_MALE_EGO",
-            "Muzukuru",
-            "Your paternal aunt's child, viewed by a male ego.",
-          ),
+    resolve: () =>
+      known(
+        "PATERNAL_AUNT_CHILD_TO_MUZUKURU",
+        "Muzukuru",
+        "Your Tete's child; both sons and daughters enter the Grandchild class.",
+        "MUZUKURU",
+      ),
     explanation:
-      "F.Z.S and F.Z.D are Mwana for a female ego and Muzukuru for a male ego.",
+      "Tete is the Father-class exception: F.Z.(S|D) enters the Grandchild class for every Ego.",
   },
   {
     id: "CLASSIFICATORY_PARENT_SPOUSE",
@@ -125,30 +166,34 @@ const rules: KinRule[] = [
       exact(["F", "B", "W"])(path) || exact(["M", "Z", "H"])(path),
     resolve: (path, context) => {
       const paternal = path[0] === "F";
-      if (context.structuralRelativeAge === "older") {
+      if (terminalSiblingSeniority(context) === "older") {
         return paternal
           ? known(
               "BAMKURU_WIFE",
               "Maiguru",
               "The wife of your father's older brother.",
+              "CLASSIFICATORY_MOTHER",
             )
           : known(
               "MAIGURU_HUSBAND",
               "Bamkuru",
               "The husband of your mother's older sister.",
+              "CLASSIFICATORY_FATHER",
             );
       }
-      if (context.structuralRelativeAge === "younger") {
+      if (terminalSiblingSeniority(context) === "younger") {
         return paternal
           ? known(
               "BAMNINI_WIFE",
               "Mainini",
               "The wife of your father's younger brother.",
+              "CLASSIFICATORY_MOTHER",
             )
           : known(
               "MAININI_HUSBAND",
               "Bamnini",
               "The husband of your mother's younger sister.",
+              "CLASSIFICATORY_FATHER",
             );
       }
       return ambiguous(
@@ -156,6 +201,7 @@ const rules: KinRule[] = [
         paternal ? "Maiguru / Mainini" : "Bamkuru / Bamnini",
         "The classificatory parent's seniority is required.",
         paternal ? ["Maiguru", "Mainini"] : ["Bamkuru", "Bamnini"],
+        paternal ? "CLASSIFICATORY_MOTHER" : "CLASSIFICATORY_FATHER",
       );
     },
     explanation:
@@ -177,6 +223,7 @@ const rules: KinRule[] = [
         "OPPOSITE_SEX_SIBLING_CHILD",
         "Muzukuru",
         "The child of your opposite-sex sibling.",
+        "MUZUKURU",
       ),
     explanation:
       "An opposite-sex sibling's child belongs to ego's Muzukuru category.",
@@ -192,31 +239,65 @@ const rules: KinRule[] = [
           "CROSS_SEX_SIBLING",
           "Hanzvadzi",
           "Your cross-sex sibling-equivalent.",
+          "CROSS_SEX_SIBLING",
         );
       }
       if (context.relativeAge === "older") {
-        return known(
-          "OLDER_SAME_SEX_SIBLING",
-          "Mukoma",
-          "Your older same-sex sibling-equivalent.",
-        );
+        return {
+          ...known(
+            "OLDER_SAME_SEX_SIBLING",
+            "Mukoma",
+            "Your older same-sex sibling-equivalent.",
+            "SAME_SEX_SIBLING",
+          ),
+          seniority: "older" as const,
+        };
       }
       if (context.relativeAge === "younger") {
-        return known(
-          "YOUNGER_SAME_SEX_SIBLING",
-          "Munin'ina",
-          "Your younger same-sex sibling-equivalent.",
-        );
+        return {
+          ...known(
+            "YOUNGER_SAME_SEX_SIBLING",
+            "Munin'ina",
+            "Your younger same-sex sibling-equivalent.",
+            "SAME_SEX_SIBLING",
+          ),
+          seniority: "younger" as const,
+        };
       }
-      return ambiguous(
-        "SAME_SEX_SIBLING_AGE_REQUIRED",
-        "Mukoma / Munin'ina",
-        "Relative age is required for a same-sex sibling-equivalent.",
-        ["Mukoma", "Munin'ina"],
-      );
+      return {
+        ...ambiguous(
+          "SAME_SEX_SIBLING_AGE_REQUIRED",
+          "Mukoma / Munin'ina",
+          "Relative age is required for a same-sex sibling-equivalent.",
+          ["Mukoma", "Munin'ina"],
+          "SAME_SEX_SIBLING",
+        ),
+        seniority: "unknown" as const,
+      };
     },
     explanation:
       "Sibling terminology uses sex correspondence and relative age.",
+  },
+  {
+    id: "GRANDFATHERS_SISTER",
+    axis: "contextual",
+    priority: 855,
+    matches: (path, context) =>
+      context.generationDistance === 2 &&
+      context.targetSex === "F" &&
+      path.length === 3 &&
+      (path[0] === "F" || path[0] === "M") &&
+      path[1] === "F" &&
+      path[2] === "Z",
+    resolve: () =>
+      known(
+        "GRANDFATHERS_SISTER",
+        "Tete",
+        "Your grandfather's sister.",
+        "PATERNAL_AUNT",
+      ),
+    explanation:
+      "A female sibling of either paternal or maternal grandfather remains in the Tete class.",
   },
   {
     id: "GRANDPARENT",
@@ -228,8 +309,13 @@ const rules: KinRule[] = [
       path.every((step) => step === "F" || step === "M"),
     resolve: (_path, context) =>
       context.targetSex === "M"
-        ? known("GRANDFATHER", "Sekuru", "Your grandfather.")
-        : known("GRANDMOTHER", "Ambuya", "Your grandmother."),
+        ? known("GRANDFATHER", "Sekuru", "Your grandfather.", "GRANDFATHER")
+        : known(
+            "GRANDMOTHER",
+            "Mbuya",
+            "Your grandmother.",
+            "GRANDMOTHER",
+          ),
     explanation: "Two upward generations form a grandparent category.",
   },
   {
@@ -241,16 +327,18 @@ const rules: KinRule[] = [
       path.length >= 2 &&
       isConsanguineal(path),
     resolve: (_path, context) =>
-      context.targetSex === "M"
+          context.targetSex === "M"
         ? known(
             "GRANDPARENT_GENERATION_MALE_COLLATERAL",
             "Sekuru",
             "Your male grandparent-generation relative.",
+            "GRANDFATHER",
           )
         : known(
             "GRANDPARENT_GENERATION_FEMALE_COLLATERAL",
-            "Ambuya",
+            "Mbuya",
             "Your female grandparent-generation relative.",
+            "GRANDMOTHER",
           ),
     explanation:
       "Consanguineal piblings, siblings, and cousins in ego's grandparent generation are classified by target sex.",
@@ -263,7 +351,8 @@ const rules: KinRule[] = [
       context.generationDistance === -2 &&
       path.length === 2 &&
       path.every((step) => step === "S" || step === "D"),
-    resolve: () => known("GRANDCHILD", "Muzukuru", "Your grandchild."),
+    resolve: () =>
+      known("GRANDCHILD", "Muzukuru", "Your grandchild.", "MUZUKURU"),
     explanation: "Two downward generations form a grandchild category.",
   },
   ...(
@@ -295,26 +384,65 @@ const rules: KinRule[] = [
       matches: exact(path),
       resolve: (_path, context) => {
         if (encoded === "F.B") {
-          if (context.structuralRelativeAge === "older")
-            return known("PATERNAL_UNCLE_OLDER", "Bamkuru", description);
-          if (context.structuralRelativeAge === "younger")
-            return known("PATERNAL_UNCLE_YOUNGER", "Bamnini", description);
+          if (terminalSiblingSeniority(context) === "older")
+            return known(
+              "PATERNAL_UNCLE_OLDER",
+              "Bamkuru",
+              description,
+              "CLASSIFICATORY_FATHER",
+            );
+          if (terminalSiblingSeniority(context) === "younger")
+            return known(
+              "PATERNAL_UNCLE_YOUNGER",
+              "Bamnini",
+              description,
+              "CLASSIFICATORY_FATHER",
+            );
           return ambiguous("PATERNAL_UNCLE_AGE_REQUIRED", title, description, [
             "Bamkuru",
             "Bamnini",
-          ]);
+          ], "CLASSIFICATORY_FATHER");
         }
         if (encoded === "M.Z") {
-          if (context.structuralRelativeAge === "older")
-            return known("MATERNAL_AUNT_OLDER", "Maiguru", description);
-          if (context.structuralRelativeAge === "younger")
-            return known("MATERNAL_AUNT_YOUNGER", "Mainini", description);
+          if (terminalSiblingSeniority(context) === "older")
+            return known(
+              "MATERNAL_AUNT_OLDER",
+              "Maiguru",
+              description,
+              "CLASSIFICATORY_MOTHER",
+            );
+          if (terminalSiblingSeniority(context) === "younger")
+            return known(
+              "MATERNAL_AUNT_YOUNGER",
+              "Mainini",
+              description,
+              "CLASSIFICATORY_MOTHER",
+            );
           return ambiguous("MATERNAL_AUNT_AGE_REQUIRED", title, description, [
             "Maiguru",
             "Mainini",
-          ]);
+          ], "CLASSIFICATORY_MOTHER");
         }
-        return known(`BASIC_${encoded.replace(".", "_")}`, title, description);
+        const kinClass: KinClass | undefined =
+          encoded === "F"
+            ? "CLASSIFICATORY_FATHER"
+            : encoded === "M"
+              ? "CLASSIFICATORY_MOTHER"
+              : encoded === "S" || encoded === "D"
+                ? "CLASSIFICATORY_CHILD"
+                : encoded === "H"
+                  ? "HUSBAND"
+                  : encoded === "W"
+                    ? "WIFE"
+                    : encoded === "F.Z"
+                      ? "PATERNAL_AUNT"
+                      : undefined;
+        return known(
+          `BASIC_${encoded.replace(".", "_")}`,
+          title,
+          description,
+          kinClass,
+        );
       },
       explanation: `${encoded} is a fundamental kin category.`,
     };
@@ -324,6 +452,9 @@ const rules: KinRule[] = [
 export class KinshipResolver {
   private readonly reducer: PathReducer;
   private readonly affinalProjector: AffinalProjector;
+  private readonly composer = new KinshipComposer();
+  private readonly resolutionCache = new Map<string, KinshipResolution>();
+  private readonly reciprocalPairsInProgress = new Set<string>();
 
   constructor(
     private readonly graph: FamilyTreeGraph,
@@ -334,6 +465,34 @@ export class KinshipResolver {
   }
 
   resolve(query: KinQuery): KinshipResolution {
+    const cacheKey = JSON.stringify([
+      query.egoId,
+      query.targetId,
+      query.egoSex ?? null,
+      query.targetSex ?? null,
+      query.relativeAge ?? null,
+    ]);
+    const cached = this.resolutionCache.get(cacheKey);
+    if (cached) return cached;
+
+    const resolution = this.resolveUncached(query);
+    this.resolutionCache.set(cacheKey, resolution);
+    return resolution;
+  }
+
+  private resolveUncached(query: KinQuery): KinshipResolution {
+    const validation = this.graph.getValidationReport();
+    if (!validation.valid) {
+      return {
+        status: "invalid",
+        specificity: "broad",
+        title: "Invalid family data",
+        description:
+          "Kinship cannot be resolved until the family graph validation errors are corrected.",
+        validationIssues: validation.issues,
+      };
+    }
+
     const ego = this.graph.getPerson(query.egoId);
     const target = this.graph.getPerson(query.targetId);
     if (!ego || !target) {
@@ -367,9 +526,13 @@ export class KinshipResolver {
       const context: Context = {
         ...baseContext,
         generationDistance: traversal.generationDistance,
-        structuralRelativeAge: this.getStructuralRelativeAge(traversal),
+        siblingSeniorities: traversal.siblingSeniorities,
       };
-      return this.resolveTraversal(traversal, context);
+      return attachCoreClassifications(
+        this.resolveTraversal(traversal, context),
+        traversal,
+        context,
+      );
     });
 
     candidates.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
@@ -381,7 +544,7 @@ export class KinshipResolver {
       ...new Set(
         best.map(
           (candidate) =>
-            `${candidate.title}\u0000${candidate.socialTerm ?? ""}`,
+            `${candidate.title}\u0000${candidate.kinClass ?? ""}\u0000${candidate.socialTerm ?? ""}`,
         ),
       ),
     ];
@@ -389,6 +552,7 @@ export class KinshipResolver {
     if (categories.length > 1) {
       return {
         status: "ambiguous",
+        specificity: "exact",
         title: "Multiple valid relationships",
         description:
           "Equally short paths resolve to different Shona categories.",
@@ -403,8 +567,31 @@ export class KinshipResolver {
 
     const resolution: KinshipResolution & { priority?: number } = {
       ...best[0],
+      coreClassifications: [
+        ...new Set(
+          best.flatMap((candidate) => candidate.coreClassifications ?? []),
+        ),
+      ],
     };
+    if (resolution.coreClassifications?.length === 0) {
+      delete resolution.coreClassifications;
+    }
     delete resolution.priority;
+
+    if (
+      resolution.status === "broad" ||
+      resolution.specificity === "alliance-side"
+    ) {
+      const reciprocal = this.resolveFromReciprocal(query, resolution);
+      if (
+        reciprocal &&
+        SPECIFICITY_RANK[reciprocal.specificity ?? "exact"] >
+          SPECIFICITY_RANK[resolution.specificity ?? "exact"]
+      ) {
+        return reciprocal;
+      }
+    }
+
     return resolution;
   }
 
@@ -421,7 +608,7 @@ export class KinshipResolver {
         traversal,
         reducedPath: traversal.canonicalPath,
         derivation: [
-          "GRANDPARENT_ANCESTOR: ancestors of Sekuru or Ambuya/Mbuya remain in the grandparent class according to target sex.",
+          "GRANDPARENT_ANCESTOR: ancestors of Sekuru or Mbuya remain in the grandparent class according to target sex.",
         ],
       };
     }
@@ -448,11 +635,27 @@ export class KinshipResolver {
     const affinalProjection = canonicalRule
       ? null
       : this.affinalProjector.project(traversal, context, sourceResolution);
+    const deferredAffinalProjection =
+      affinalProjection?.specificity === "alliance-side"
+        ? affinalProjection
+        : null;
 
-    if (affinalProjection) {
+    if (affinalProjection && !deferredAffinalProjection) {
       return {
         ...affinalProjection,
         traversal,
+      };
+    }
+
+    const inheritedSpouseKin = canonicalRule
+      ? undefined
+      : this.resolveLeadingSpouseInheritance(traversal, context);
+    if (inheritedSpouseKin) {
+      return {
+        priority: 960,
+        ...inheritedSpouseKin,
+        traversal,
+        reducedPath: traversal.canonicalPath,
       };
     }
 
@@ -477,26 +680,233 @@ export class KinshipResolver {
         };
       }
 
+      const composed = this.composer.compose(traversal, context, {
+        resolveBetween: (egoId, targetId) =>
+          this.resolve({
+            egoId,
+            targetId,
+            relativeAge: this.graph.relativeAge(egoId, targetId),
+          }),
+        projectSemanticContinuation: (splitIndex, prefix) =>
+          this.projectSemanticContinuation(
+            traversal,
+            context,
+            splitIndex,
+            prefix,
+          ),
+        projectMwanaAlliance: (marriageIndex, prefix) =>
+          this.projectMwanaAlliance(
+            traversal,
+            context,
+            marriageIndex,
+            prefix,
+          ),
+      });
+      if (composed) {
+        return {
+          ...composed,
+          traversal,
+        };
+      }
+
+      // Generic wife-giving/wife-receiving labels are valid fallbacks, but
+      // they must not prevent a more precise semantic composition from being
+      // attempted first.
+      if (deferredAffinalProjection) {
+        return {
+          ...deferredAffinalProjection,
+          traversal,
+        };
+      }
+
       return {
-        priority: 0,
-        status: "unmapped" as const,
-        title: "Mutorwa / Relationship Unmapped",
-        description: `No Shona algebraic rule matched ${formatKPath(reduction.reducedPath) || "SELF"}.`,
+        ...this.composer.broad(
+          traversal,
+          reduction.reducedPath,
+          reduction.derivation,
+        ),
         traversal,
-        reducedPath: reduction.reducedPath,
-        derivation: reduction.derivation,
       };
     }
 
+    const resolved = rule.resolve(
+      canonicalRule ? traversal.canonicalPath : reduction.reducedPath,
+      context,
+    );
     return {
       priority: rule.priority,
-      ...rule.resolve(
-        canonicalRule ? traversal.canonicalPath : reduction.reducedPath,
-        context,
-      ),
+      ...resolved,
+      provenance: resolved.provenance ?? rule.provenance,
       traversal,
       reducedPath: reduction.reducedPath,
       derivation: [...reduction.derivation, `${rule.id}: ${rule.explanation}`],
+    };
+  }
+
+  /**
+   * Continue a path from an already-resolved semantic class. The prefix may
+   * have been reached through any number of genealogical or affinal steps;
+   * replacing it by its fundamental class edge prevents full-path maps and
+   * makes ordinary reduction rules reusable at arbitrary depth.
+   */
+  private projectSemanticContinuation(
+    traversal: TraversalResult,
+    context: Context,
+    splitIndex: number,
+    prefix: KinshipResolution,
+  ): ComposedKinshipResolution | null {
+    const sourceId = traversal.personIds[splitIndex];
+    const source = sourceId ? this.graph.getPerson(sourceId) : undefined;
+    if (!source) return null;
+
+    const fundamentalStep = fundamentalStepForClass(
+      prefix.kinClass,
+      source.sex,
+    );
+    if (!fundamentalStep) return null;
+
+    const suffix = traversal.rawPath.slice(splitIndex);
+    if (1 + suffix.length >= traversal.rawPath.length) return null;
+
+    const rawPath: KStep[] = [fundamentalStep, ...suffix];
+    const compacted: TraversalResult = {
+      personIds: [
+        context.egoId,
+        sourceId,
+        ...traversal.personIds.slice(splitIndex + 1),
+      ],
+      rawPath,
+      canonicalPath: FamilyTreeGraph.canonicalize(rawPath),
+      generationDistance: FamilyTreeGraph.generationDistance(rawPath),
+      siblingSeniorities: this.graph.describeSiblingSeniorities(
+        [
+          context.egoId,
+          sourceId,
+          ...traversal.personIds.slice(splitIndex + 1),
+        ],
+        rawPath,
+      ),
+    };
+    const compactedContext: Context = {
+      ...context,
+      generationDistance: compacted.generationDistance,
+      siblingSeniorities: compacted.siblingSeniorities,
+    };
+    const projected = this.resolveTraversal(compacted, compactedContext);
+    if (projected.status !== "known" && projected.status !== "ambiguous") {
+      return null;
+    }
+
+    const { traversal: compactedTraversal, ...resolution } = projected;
+    return {
+      ...resolution,
+      reducedPath: [...traversal.canonicalPath],
+      derivation: [
+        ...(prefix.derivation ?? []),
+        ...(projected.derivation ?? []),
+        `SEMANTIC_CLASS_CONTINUATION: ${prefix.kinClass} was compacted to ${fundamentalStep}; the ordinary algebra resolved ${compactedTraversal.canonicalPath.join(".")}.`,
+      ],
+    };
+  }
+
+  /**
+   * If the forward algebra is connected but incomplete, calculate the reverse
+   * direction once and apply only an explicitly declared reciprocal class.
+   * The unordered-pair guard prevents E→T and T→E from recursively asking
+   * each other for an answer when neither direction is culturally defined.
+   */
+  private resolveFromReciprocal(
+    query: KinQuery,
+    direct: KinshipResolution,
+  ): KinshipResolution | undefined {
+    const traversal = direct.traversal;
+    const ego = this.graph.getPerson(query.egoId);
+    const target = this.graph.getPerson(query.targetId);
+    if (!traversal || !ego || !target) return undefined;
+
+    const pairKey = [query.egoId, query.targetId].sort().join("\u0000");
+    if (this.reciprocalPairsInProgress.has(pairKey)) return undefined;
+
+    this.reciprocalPairsInProgress.add(pairKey);
+    try {
+      const reverse = this.resolveUncached({
+        egoId: query.targetId,
+        targetId: query.egoId,
+        egoSex: query.targetSex,
+        targetSex: query.egoSex,
+      });
+      const context: Context = {
+        egoId: query.egoId,
+        targetId: query.targetId,
+        egoSex: query.egoSex ?? ego.sex,
+        targetSex: query.targetSex ?? target.sex,
+        relativeAge:
+          query.relativeAge ??
+          this.graph.relativeAge(query.egoId, query.targetId),
+        siblingSeniorities: traversal.siblingSeniorities,
+        generationDistance: traversal.generationDistance,
+      };
+      const reciprocal = projectReciprocalClass(reverse, traversal, context);
+      return reciprocal ? { ...reciprocal, traversal } : undefined;
+    } finally {
+      this.reciprocalPairsInProgress.delete(pairKey);
+    }
+  }
+
+  /**
+   * Rebase an arbitrarily derived Mwana prefix onto the fundamental child
+   * edge and reuse the existing child-alliance projector for the remaining
+   * marriage suffix. This makes the composition depend on Mwana, not on the
+   * complete path which originally produced that class.
+   */
+  private projectMwanaAlliance(
+    traversal: TraversalResult,
+    context: Context,
+    marriageIndex: number,
+    prefix: KinshipResolution,
+  ): ComposedKinshipResolution | null {
+    const sourceId = traversal.personIds[marriageIndex];
+    const source = sourceId ? this.graph.getPerson(sourceId) : undefined;
+    if (!source) return null;
+
+    const childStep: KStep = source.sex === "M" ? "S" : "D";
+    const rawPath: KStep[] = [
+      childStep,
+      ...traversal.rawPath.slice(marriageIndex),
+    ];
+    const personIds = [
+      context.egoId,
+      ...traversal.personIds.slice(marriageIndex),
+    ];
+    const compacted: TraversalResult = {
+      personIds,
+      rawPath,
+      canonicalPath: FamilyTreeGraph.canonicalize(rawPath),
+      generationDistance: FamilyTreeGraph.generationDistance(rawPath),
+      siblingSeniorities: this.graph.describeSiblingSeniorities(
+        personIds,
+        rawPath,
+      ),
+    };
+    const compactedContext: Context = {
+      ...context,
+      generationDistance: compacted.generationDistance,
+      siblingSeniorities: compacted.siblingSeniorities,
+    };
+    const projection = this.affinalProjector.project(
+      compacted,
+      compactedContext,
+    );
+    if (!projection) return null;
+
+    return {
+      ...projection,
+      reducedPath: [...traversal.canonicalPath],
+      derivation: [
+        ...(prefix.derivation ?? []),
+        ...(projection.derivation ?? []),
+        "COMPOSED_MWANA_ALLIANCE: an already-resolved Mwana prefix was compacted to its fundamental child class before applying the remaining affinal suffix.",
+      ],
     };
   }
 
@@ -530,7 +940,8 @@ export class KinshipResolver {
 
     if (
       parentResolution.status !== "known" ||
-      !CLASSIFICATORY_PARENT_TITLES.has(parentResolution.title)
+      !parentResolution.kinClass ||
+      !CLASSIFICATORY_PARENT_CLASSES.has(parentResolution.kinClass)
     ) {
       return undefined;
     }
@@ -540,22 +951,21 @@ export class KinshipResolver {
           "PARENT_CLASS_MALE_GRANDPARENT",
           "Sekuru",
           "Your parent's male classificatory parent is in your Sekuru class.",
+          "GRANDFATHER",
         )
-      : {
-          ...known(
-            "PARENT_CLASS_FEMALE_GRANDPARENT",
-            "Ambuya",
-            "Your parent's female classificatory parent is in your Ambuya or Mbuya class.",
-          ),
-          aliases: ["Mbuya"],
-        };
+      : known(
+          "PARENT_CLASS_FEMALE_GRANDPARENT",
+          "Mbuya",
+          "Your parent's female classificatory parent is in your Mbuya class.",
+          "GRANDMOTHER",
+        );
   }
 
   /**
    * Reciprocate the recursive Muzukuru descendant rule in the upward
    * direction. Once the person immediately below the target belongs to ego's
    * grandparent class, that person's parent remains in the same class, with
-   * the final ancestor's sex selecting Sekuru or Ambuya/Mbuya. Each recursive
+   * the final ancestor's sex selecting Sekuru or Mbuya. Each recursive
    * call resolves a strictly shorter traversal, so arbitrary depths terminate.
    */
   private resolveGrandparentAncestor(
@@ -582,7 +992,8 @@ export class KinshipResolver {
 
     if (
       descendantResolution.status !== "known" ||
-      !["Sekuru", "Ambuya", "Mbuya"].includes(descendantResolution.title)
+      (descendantResolution.kinClass !== "GRANDFATHER" &&
+        descendantResolution.kinClass !== "GRANDMOTHER")
     ) {
       return undefined;
     }
@@ -592,15 +1003,14 @@ export class KinshipResolver {
           "RECURSIVE_MALE_GRANDPARENT_ANCESTOR",
           "Sekuru",
           "A male ancestor of your grandparent-class relative remains Sekuru.",
+          "GRANDFATHER",
         )
-      : {
-          ...known(
-            "RECURSIVE_FEMALE_GRANDPARENT_ANCESTOR",
-            "Ambuya",
-            "A female ancestor of your grandparent-class relative remains Ambuya or Mbuya.",
-          ),
-          aliases: ["Mbuya"],
-        };
+      : known(
+          "RECURSIVE_FEMALE_GRANDPARENT_ANCESTOR",
+          "Mbuya",
+          "A female ancestor of your grandparent-class relative remains Mbuya.",
+          "GRANDMOTHER",
+        );
   }
 
   /**
@@ -636,20 +1046,22 @@ export class KinshipResolver {
       return undefined;
     }
 
-    if (parentResolution.title === "Mwana") {
+    if (parentResolution.kinClass === "CLASSIFICATORY_CHILD") {
       return known(
         "MWANA_CHILD_TO_MUZUKURU",
         "Muzukuru",
         "A child of your Mwana enters your Muzukuru category.",
+        "MUZUKURU",
       );
     }
 
-    if (parentResolution.title !== "Muzukuru") return undefined;
+    if (parentResolution.kinClass !== "MUZUKURU") return undefined;
 
     return known(
       "MUZUKURU_DESCENDANT",
       "Muzukuru",
       "A descendant of your Muzukuru remains in your Muzukuru category.",
+      "MUZUKURU",
     );
   }
 
@@ -684,6 +1096,109 @@ export class KinshipResolver {
     });
   }
 
+  /**
+   * Resolve the spouse-to-target relationship first, then project its
+   * semantic class through Ego's leading marriage edge. Fundamental classes
+   * reuse the ordinary short affinal rules (for example H + Z -> Tete), while
+   * stable recursive generations retain the spouse's established class.
+   * Resolving from the direct spouse shortens the traversal and terminates.
+   */
+  private resolveLeadingSpouseInheritance(
+    traversal: TraversalResult,
+    context: Context,
+  ): KinshipResolution | undefined {
+    const firstStep = traversal.rawPath[0];
+    if (
+      traversal.rawPath.length < 2 ||
+      (firstStep !== "H" && firstStep !== "W")
+    ) {
+      return undefined;
+    }
+
+    const spouseId = traversal.personIds[1];
+    if (!spouseId || spouseId === context.targetId) return undefined;
+
+    const spouseResolution = this.resolve({
+      egoId: spouseId,
+      targetId: context.targetId,
+      relativeAge: this.graph.relativeAge(spouseId, context.targetId),
+    });
+    if (
+      spouseResolution.status !== "known" ||
+      !spouseResolution.kinClass
+    ) {
+      return undefined;
+    }
+
+    const fundamentalStep = fundamentalStepForClass(
+      spouseResolution.kinClass,
+      context.targetSex,
+    );
+    if (fundamentalStep) {
+      const rawPath: KStep[] = [firstStep, fundamentalStep];
+      const personIds = [context.egoId, spouseId, context.targetId];
+      const compacted: TraversalResult = {
+        personIds,
+        rawPath,
+        canonicalPath: FamilyTreeGraph.canonicalize(rawPath),
+        generationDistance: FamilyTreeGraph.generationDistance(rawPath),
+        siblingSeniorities: this.graph.describeSiblingSeniorities(
+          personIds,
+          rawPath,
+        ),
+      };
+      const compactedContext: Context = {
+        ...context,
+        generationDistance: compacted.generationDistance,
+        siblingSeniorities: compacted.siblingSeniorities,
+      };
+      const projected = this.affinalProjector.project(
+        compacted,
+        compactedContext,
+      );
+
+      if (projected && projected.specificity !== "alliance-side") {
+        const resolution: KinshipResolution & { priority?: number } = {
+          ...projected,
+        };
+        delete resolution.priority;
+        return {
+          ...resolution,
+          provenance: resolution.provenance ?? spouseResolution.provenance,
+          derivation: [
+            ...(spouseResolution.derivation ?? []),
+            ...(resolution.derivation ?? []),
+            `AFFINAL_LEADING_SPOUSE_SEMANTIC_PROJECTION: ${spouseResolution.kinClass} was compacted to ${fundamentalStep} and projected through the leading ${firstStep} edge.`,
+          ],
+        };
+      }
+    }
+
+    if (
+      !SPOUSE_INHERITED_GENERATIONAL_CLASSES.has(spouseResolution.kinClass)
+    ) {
+      return undefined;
+    }
+
+    return {
+      status: "known",
+      ruleId: "AFFINAL_LEADING_SPOUSE_INHERITED_GENERATIONAL_CLASS",
+      title: spouseResolution.title,
+      kinClass: spouseResolution.kinClass,
+      specificity: spouseResolution.specificity,
+      seniority: spouseResolution.seniority,
+      aliases: spouseResolution.aliases,
+      provenance: spouseResolution.provenance,
+      description: `By marriage, you inherit your spouse's ${spouseResolution.title} relationship to this relative.`,
+      socialTerm: spouseResolution.socialTerm,
+      socialDescription: spouseResolution.socialDescription,
+      derivation: [
+        ...(spouseResolution.derivation ?? []),
+        `AFFINAL_LEADING_SPOUSE_INHERITED_GENERATIONAL_CLASS: the leading ${firstStep} edge transfers the spouse's stable generational class.`,
+      ],
+    };
+  }
+
   private bestRule(
     path: readonly KStep[],
     context: Context,
@@ -697,32 +1212,4 @@ export class KinshipResolver {
       .sort((a, b) => b.priority - a.priority)[0];
   }
 
-  /** Find the first sibling comparison represented by the raw traversal. */
-  private getStructuralRelativeAge(traversal: TraversalResult): RelativeAge {
-    for (let index = 0; index < traversal.rawPath.length; index += 1) {
-      const step = traversal.rawPath[index];
-
-      if (step === "B" || step === "Z") {
-        const referenceId = traversal.personIds[index];
-        const targetId = traversal.personIds[index + 1];
-        if (referenceId && targetId) {
-          return this.graph.relativeAge(referenceId, targetId);
-        }
-      }
-
-      const next = traversal.rawPath[index + 1];
-      if (
-        (step === "F" || step === "M") &&
-        (next === "S" || next === "D")
-      ) {
-        const referenceId = traversal.personIds[index];
-        const targetId = traversal.personIds[index + 2];
-        if (referenceId && targetId) {
-          return this.graph.relativeAge(referenceId, targetId);
-        }
-      }
-    }
-
-    return "unknown";
-  }
 }

@@ -1,7 +1,10 @@
 import { FamilyTreeGraph } from "./family-tree-graph";
+import { terminalSiblingSeniority } from "./model";
 import type {
   AffinalSocialTerm,
   Context,
+  KinClass,
+  KinshipSpecificity,
   KinshipResolution,
   KPath,
   KStep,
@@ -9,17 +12,10 @@ import type {
   TraversalResult,
 } from "./model";
 import { PathReducer } from "./path-reducer";
+import { SOCIAL_DESCRIPTIONS } from "./social-protocol";
 
 type AffinalProjection = Omit<KinshipResolution, "traversal"> & {
   priority: number;
-};
-
-const SOCIAL_DESCRIPTIONS: Record<AffinalSocialTerm, string> = {
-  Vanyarikani:
-    "A relationship governed primarily by respect, restraint, and the appropriate honorific forms.",
-  Vasekedzani:
-    "A reciprocal joking relationship in which familiar teasing helps sustain the alliance.",
-  Vakaroorana: "The reciprocal social relationship between married spouses.",
 };
 
 function exact(path: readonly KStep[], expected: readonly KStep[]) {
@@ -37,6 +33,8 @@ function known(
   reducedPath: KPath,
   explanation: string,
   aliases?: string[],
+  kinClass?: KinClass,
+  specificity: KinshipSpecificity = "exact",
 ): AffinalProjection {
   return {
     priority: 965,
@@ -45,6 +43,8 @@ function known(
     title,
     description,
     aliases,
+    kinClass,
+    specificity,
     socialTerm,
     socialDescription: SOCIAL_DESCRIPTIONS[socialTerm],
     reducedPath,
@@ -60,13 +60,16 @@ function ambiguous(
   reducedPath: KPath,
   explanation: string,
   possibilities: string[],
+  kinClass?: KinClass,
 ): AffinalProjection {
   return {
     priority: 965,
     status: "ambiguous",
+    specificity: "exact",
     ruleId,
     title,
     description,
+    kinClass,
     socialTerm,
     socialDescription: SOCIAL_DESCRIPTIONS[socialTerm],
     possibilities,
@@ -114,6 +117,8 @@ export class AffinalProjector {
             "Vakaroorana",
             ["H"],
             "A direct H edge establishes the reciprocal marriage relationship.",
+            undefined,
+            "HUSBAND",
           )
         : known(
             "AFFINAL_SPOUSE_WIFE",
@@ -122,6 +127,8 @@ export class AffinalProjector {
             "Vakaroorana",
             ["W"],
             "A direct W edge establishes the reciprocal marriage relationship.",
+            undefined,
+            "WIFE",
           );
     }
 
@@ -166,33 +173,46 @@ export class AffinalProjector {
       ? ` The source class was resolved by ${source.ruleId}.`
       : "";
 
-    if (source.title === "Mwana") {
+    if (source.kinClass === "CLASSIFICATORY_CHILD") {
       return marriageStep === "W"
         ? known(
             "AFFINAL_MWANA_WIFE",
-            "Muroora",
-            "The wife of your classificatory child.",
+            "Mwana",
+            "The wife of your classificatory child; she retains Mwana rank and is also Muroora.",
             "Vanyarikani",
             reducedPath,
-            `Mwana projects a female spouse to Muroora.${sourceRule}`,
+            `Mwana rank is inherited across marriage while the female spouse also enters the Muroora class.${sourceRule}`,
+            ["Muroora"],
+            "CLASSIFICATORY_CHILD",
           )
         : known(
             "AFFINAL_MWANA_HUSBAND",
-            "Mukuwasha",
-            "The husband of your classificatory child.",
+            "Mwana",
+            "The husband of your classificatory child; he retains Mwana rank and is also Mukwasha.",
             "Vanyarikani",
             reducedPath,
-            `Mwana projects a male spouse to Mukuwasha.${sourceRule}`,
+            `Mwana rank is inherited across marriage while the male spouse also enters the Mukwasha class.${sourceRule}`,
+            ["Mukwasha"],
+            "CLASSIFICATORY_CHILD",
           );
     }
 
-    const sameSexSiblingClass =
-      source.title === "Mukoma" ||
-      source.title === "Munin'ina" ||
-      source.title === "Mukoma / Munin'ina";
-    if (sameSexSiblingClass) {
-      const older = source.title === "Mukoma";
-      const younger = source.title === "Munin'ina";
+    if (source.kinClass === "WIFE_GIVING_MALE_PEER" && marriageStep === "W") {
+      return known(
+        "AFFINAL_WIFES_BROTHERS_WIFE",
+        "Ambuya",
+        "Your wife's brother's wife.",
+        "Vanyarikani",
+        reducedPath,
+        `The wife of a wife-giving male peer enters the distinct respectful Ambuya class.${sourceRule}`,
+        undefined,
+        "WIFES_BROTHERS_WIFE",
+      );
+    }
+
+    if (source.kinClass === "SAME_SEX_SIBLING") {
+      const older = source.seniority === "older";
+      const younger = source.seniority === "younger";
       const femaleSpouse = context.targetSex === "F";
 
       if (!older && !younger) {
@@ -226,11 +246,11 @@ export class AffinalProjector {
         "Vasekedzani",
         reducedPath,
         `A same-sex sibling's husband inherits that sibling's seniority class.${sourceRule}`,
-        older ? ["Babamukuru"] : ["Babamunini"],
+        older ? ["Bamkuru"] : ["Bamnini"],
       );
     }
 
-    if (source.title === "Muzukuru") {
+    if (source.kinClass === "MUZUKURU") {
       return known(
         "AFFINAL_MUZUKURU_SPOUSE",
         "Muzukuru",
@@ -238,10 +258,12 @@ export class AffinalProjector {
         "Vasekedzani",
         reducedPath,
         `The Muzukuru class is preserved across the terminal marriage.${sourceRule}`,
+        undefined,
+        "MUZUKURU",
       );
     }
 
-    if (source.title === "Sekuru") {
+    if (source.kinClass === "GRANDFATHER") {
       return known(
         "AFFINAL_SEKURU_SPOUSE",
         "Mbuya",
@@ -249,11 +271,12 @@ export class AffinalProjector {
         "Vasekedzani",
         reducedPath,
         `Sekuru projects reciprocally to Mbuya across marriage.${sourceRule}`,
-        ["Ambuya"],
+        undefined,
+        "GRANDMOTHER",
       );
     }
 
-    if (source.title === "Mbuya" || source.title === "Ambuya") {
+    if (source.kinClass === "GRANDMOTHER") {
       return known(
         "AFFINAL_MBUYA_SPOUSE",
         "Sekuru",
@@ -261,10 +284,12 @@ export class AffinalProjector {
         "Vasekedzani",
         reducedPath,
         `Mbuya projects reciprocally to Sekuru across marriage.${sourceRule}`,
+        undefined,
+        "GRANDFATHER",
       );
     }
 
-    if (source.title === "Tete" && context.targetSex === "M") {
+    if (source.kinClass === "PATERNAL_AUNT" && context.targetSex === "M") {
       return known(
         "AFFINAL_TETE_HUSBAND",
         "Bamkuru",
@@ -272,11 +297,12 @@ export class AffinalProjector {
         "Vanyarikani",
         reducedPath,
         `Tete projects her husband to Bamkuru.${sourceRule}`,
-        ["Babamukuru"],
+        ["Bamkuru"],
+        "CLASSIFICATORY_FATHER",
       );
     }
 
-    if (source.title === "Hanzvadzi") {
+    if (source.kinClass === "CROSS_SEX_SIBLING") {
       if (context.egoSex === "F" && marriageStep === "W") {
         return known(
           "AFFINAL_FEMALE_EGO_BROTHERS_WIFE",
@@ -293,10 +319,11 @@ export class AffinalProjector {
         ? known(
             "AFFINAL_HANZVADZI_MALE_SPOUSE",
             "Tsano",
-            "The male spouse of your Hanzvadzi.",
+            "The male spouse of your Hanzvadzi; Tsano with Mukwasha as the alliance title.",
             "Vanyarikani",
             reducedPath,
-            `A male spouse of Hanzvadzi projects to Tsano.${sourceRule}`,
+            `A male spouse of Hanzvadzi projects to Tsano and Mukwasha.${sourceRule}`,
+            ["Mukwasha"],
           )
         : known(
             "AFFINAL_HANZVADZI_FEMALE_SPOUSE",
@@ -329,11 +356,34 @@ export class AffinalProjector {
       context.egoSex === "M" &&
       context.targetSex === "M" &&
       exact(traversal.canonicalPath, ["W", "Z", "H"]);
-    if (!husbandsBrothersWife && !wifesSistersHusband) return null;
+    const fellowWifeReceiver =
+      context.egoSex === "F" &&
+      context.targetSex === "M" &&
+      exact(traversal.canonicalPath, ["H", "Z", "H"]);
+    if (
+      !husbandsBrothersWife &&
+      !wifesSistersHusband &&
+      !fellowWifeReceiver
+    ) {
+      return null;
+    }
 
     const reducedPath: KPath = [...traversal.canonicalPath];
 
-    if (context.structuralRelativeAge === "older") {
+    if (fellowWifeReceiver) {
+      return known(
+        "AFFINAL_FELLOW_WIFE_RECEIVER",
+        "Mukuwasha",
+        "Your husband's sister's husband; a fellow male wife-receiver in the alliance.",
+        "Vanyarikani",
+        reducedPath,
+        "Two men married to women of the same sibling group occupy the reciprocal wife-receiver peer class.",
+        undefined,
+        "WIFE_RECEIVER_MALE_PEER",
+      );
+    }
+
+    if (terminalSiblingSeniority(context) === "older") {
       return husbandsBrothersWife
         ? known(
             "AFFINAL_HUSBANDS_OLDER_BROTHERS_WIFE",
@@ -350,11 +400,11 @@ export class AffinalProjector {
             "Vasekedzani",
             reducedPath,
             "A sister's husband inherits his wife's seniority class among the sisters.",
-            ["Babamukuru"],
+            ["Bamkuru"],
           );
     }
 
-    if (context.structuralRelativeAge === "younger") {
+    if (terminalSiblingSeniority(context) === "younger") {
       return husbandsBrothersWife
         ? known(
             "AFFINAL_HUSBANDS_YOUNGER_BROTHERS_WIFE",
@@ -371,7 +421,7 @@ export class AffinalProjector {
             "Vasekedzani",
             reducedPath,
             "A sister's husband inherits his wife's seniority class among the sisters.",
-            ["Babamunini"],
+            ["Bamnini"],
           );
     }
 
@@ -421,7 +471,8 @@ export class AffinalProjector {
           "Vanyarikani",
           reducedPath,
           "The wife's mother-class belongs to the respected wife-giving side.",
-          ["Mbuyawasha", "Ambuyawasha"],
+          undefined,
+          "MOTHER_IN_LAW",
         );
       }
 
@@ -438,7 +489,7 @@ export class AffinalProjector {
       }
 
       if (exact(normalized, ["Z"])) {
-        if (context.structuralRelativeAge === "older") {
+        if (terminalSiblingSeniority(context) === "older") {
           return known(
             "AFFINAL_WIFES_OLDER_SISTER",
             "Maiguru",
@@ -450,7 +501,7 @@ export class AffinalProjector {
           );
         }
 
-        if (context.structuralRelativeAge === "younger") {
+        if (terminalSiblingSeniority(context) === "younger") {
           return known(
             "AFFINAL_WIFES_YOUNGER_SISTER",
             "Mainini",
@@ -485,6 +536,8 @@ export class AffinalProjector {
           "Vanyarikani",
           reducedPath,
           "After wife-giving alignment, the wife's Z.(S|D) branch reduces algebraically to her direct child class.",
+          undefined,
+          "CLASSIFICATORY_CHILD",
         );
       }
 
@@ -502,6 +555,8 @@ export class AffinalProjector {
               "Vasekedzani",
               reducedPath,
               "The wife's brother's male child class is elevated to Sekuru on the wife-giving axis.",
+              undefined,
+              "GRANDFATHER",
             )
           : known(
               "AFFINAL_WIFES_BROTHERS_DAUGHTER",
@@ -511,6 +566,7 @@ export class AffinalProjector {
               reducedPath,
               "The wife's brother's female child class resolves to Mainini on the wife-giving axis.",
               ["Muramu"],
+              "CLASSIFICATORY_MOTHER",
             );
       }
 
@@ -523,6 +579,7 @@ export class AffinalProjector {
           reducedPath,
           "Male members of the wife-giving lineage project to Tezvara without enumerating their paths.",
           generation === 0 ? ["Tsano"] : ["Baba"],
+          generation === 0 ? "WIFE_GIVING_MALE_PEER" : undefined,
         );
       }
 
@@ -550,6 +607,7 @@ export class AffinalProjector {
           reducedPath,
           "A wife's brother is a same-generation male of the wife-giving side.",
           ["Tsano", "Tezvara"],
+          "WIFE_GIVING_MALE_PEER",
         );
       }
 
@@ -560,6 +618,9 @@ export class AffinalProjector {
         "Vanyarikani",
         reducedPath,
         "The relationship remains within the wife-giving alliance when no narrower class is established.",
+        undefined,
+        undefined,
+        "alliance-side",
       );
     }
 
@@ -573,9 +634,11 @@ export class AffinalProjector {
         "Mwana",
         "Your husband's child or the child of his same-sex sibling-equivalent.",
         "Vanyarikani",
-        reducedPath,
-        "After inward clan alignment, the husband's B.(S|D) branch reduces algebraically to his direct child class.",
-      );
+          reducedPath,
+          "After inward clan alignment, the husband's B.(S|D) branch reduces algebraically to his direct child class.",
+          undefined,
+          "CLASSIFICATORY_CHILD",
+        );
     }
 
     const sistersChildClass =
@@ -591,6 +654,8 @@ export class AffinalProjector {
         "Vasekedzani",
         reducedPath,
         "After inward clan alignment, the husband's opposite-sex sibling's child remains in the Muzukuru class.",
+        undefined,
+        "MUZUKURU",
       );
     }
 
@@ -603,14 +668,18 @@ export class AffinalProjector {
             "Vasekedzani",
             reducedPath,
             "A wife enters her husband's grandparent categories without a generic in-law label.",
+            undefined,
+            "GRANDFATHER",
           )
         : known(
             "AFFINAL_HUSBAND_GRANDMOTHER_CLASS",
-            "Ambuya",
+            "Mbuya",
             "Your husband's grandmother or grandmother-equivalent.",
             "Vasekedzani",
             reducedPath,
             "A wife enters her husband's grandparent categories without a generic in-law label.",
+            undefined,
+            "GRANDMOTHER",
           );
     }
 
@@ -635,11 +704,12 @@ export class AffinalProjector {
         reducedPath,
         "The husband's mother-class is Vamwene to the incoming wife.",
         ["Amai"],
+        "MOTHER_IN_LAW",
       );
     }
 
     if (exact(normalized, ["B"])) {
-      if (context.structuralRelativeAge === "older") {
+      if (terminalSiblingSeniority(context) === "older") {
         return known(
           "AFFINAL_HUSBANDS_OLDER_BROTHER",
           "Bamkuru",
@@ -647,11 +717,11 @@ export class AffinalProjector {
           "Vasekedzani",
           reducedPath,
           "A husband's brother retains his seniority-specific father-brother class across the marriage boundary.",
-          ["Babamukuru", "Muramu"],
+          ["Bamkuru", "Muramu"],
         );
       }
 
-      if (context.structuralRelativeAge === "younger") {
+      if (terminalSiblingSeniority(context) === "younger") {
         return known(
           "AFFINAL_HUSBANDS_YOUNGER_BROTHER",
           "Bamnini",
@@ -659,7 +729,7 @@ export class AffinalProjector {
           "Vasekedzani",
           reducedPath,
           "A husband's brother retains his seniority-specific father-brother class across the marriage boundary.",
-          ["Babamunini", "Muramu"],
+          ["Bamnini", "Muramu"],
         );
       }
 
@@ -670,7 +740,7 @@ export class AffinalProjector {
         "Vasekedzani",
         reducedPath,
         "Muramu remains the generic joking category when the brothers' relative seniority is unknown.",
-        ["Bamkuru", "Bamnini", "Babamukuru", "Babamunini"],
+        ["Bamkuru", "Bamnini"],
       );
     }
 
@@ -727,6 +797,9 @@ export class AffinalProjector {
       "Vanyarikani",
       reducedPath,
       "The relationship remains within the husband's alliance when no narrower class is established.",
+      undefined,
+      undefined,
+      "alliance-side",
     );
   }
 
@@ -790,19 +863,23 @@ export class AffinalProjector {
       return outgoing
         ? known(
             "AFFINAL_SON_IN_LAW",
-            "Mukuwasha",
-            "Your daughter's husband.",
+            "Mwana",
+            "Your daughter's husband; he retains Mwana rank and is also Mukwasha.",
             "Vanyarikani",
             reducedPath,
-            "A man married to a daughter of ego's family is Mukuwasha.",
+            "A Mwana's male spouse retains Mwana rank and also enters the Mukwasha class.",
+            ["Mukwasha"],
+            "CLASSIFICATORY_CHILD",
           )
         : known(
             "AFFINAL_DAUGHTER_IN_LAW",
-            "Muroora",
-            "Your son's wife.",
+            "Mwana",
+            "Your son's wife; she retains Mwana rank and is also Muroora.",
             "Vanyarikani",
             reducedPath,
-            "A woman married to a son of ego's family is Muroora.",
+            "A Mwana's female spouse retains Mwana rank and also enters the Muroora class.",
+            ["Muroora"],
+            "CLASSIFICATORY_CHILD",
           );
     }
 
@@ -817,6 +894,8 @@ export class AffinalProjector {
         "Vasekedzani",
         reducedPath,
         "A child one generation below a child's spouse enters ego's grandchild category.",
+        undefined,
+        "MUZUKURU",
       );
     }
 
@@ -869,6 +948,9 @@ export class AffinalProjector {
             "Vanyarikani",
             reducedPath,
             "The female sibling class remains a named relative of the Mukuwasha side.",
+            undefined,
+            undefined,
+            "alliance-side",
           );
     }
 
@@ -919,6 +1001,9 @@ export class AffinalProjector {
           "Vanyarikani",
           reducedPath,
           "The relative belongs to the wife-receiving alliance but no narrower title is established.",
+          undefined,
+          undefined,
+          "alliance-side",
         )
       : known(
           "AFFINAL_DAUGHTER_IN_LAW_SIDE_RELATIVE",
@@ -927,6 +1012,9 @@ export class AffinalProjector {
           "Vanyarikani",
           reducedPath,
           "The relative belongs to the wife-giving alliance but no narrower title is established.",
+          undefined,
+          undefined,
+          "alliance-side",
         );
   }
 

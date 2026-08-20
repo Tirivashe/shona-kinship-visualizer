@@ -45,6 +45,19 @@ const rewrites: AlgebraicRewrite[] = [
     replacement: () => ["M"],
   },
   {
+    id: "M_MATRILATERAL_UNCLE_DAUGHTER_ELEVATION",
+    explanation:
+      "A maternal uncle's daughter is structurally a classificatory mother (intermediate step only).",
+    match: (path, index) =>
+      index + 3 < path.length &&
+      path[index] === "M" &&
+      path[index + 1] === "B" &&
+      path[index + 2] === "D"
+        ? 3
+        : 0,
+    replacement: () => ["M"],
+  },
+  {
     id: "P_CLASSIFICATORY_PARENT_CHILD",
     explanation: "A classificatory parent's child reduces to a sibling-equivalent.",
     match: (path, index) =>
@@ -97,6 +110,11 @@ export class PathReducer {
           if (consumed === 0) continue;
 
           const replacement = rewrite.replacement(path, index, context);
+          if (replacement.length >= consumed) {
+            throw new Error(
+              `Non-terminating K-Path rewrite ${rewrite.id}: replacement must be shorter than its match.`,
+            );
+          }
           path = [
             ...path.slice(0, index),
             ...replacement,

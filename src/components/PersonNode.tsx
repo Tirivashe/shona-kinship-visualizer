@@ -8,6 +8,7 @@ export type PersonNodeData = {
   isEgo: boolean;
   photoUrl?: string;
   onEdit?: () => void;
+  onDelete?: () => void;
 };
 
 export function PersonNode({ data }: NodeProps) {
@@ -45,6 +46,37 @@ export function PersonNode({ data }: NodeProps) {
         position={Position.Right}
         className="opacity-0"
       />
+
+      {person.onDelete && (
+        <button
+          type="button"
+          aria-label={`Delete ${person.name}`}
+          title={`Delete ${person.name}`}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            person.onDelete?.();
+          }}
+          className="nodrag nopan nowheel absolute -top-2 -left-2 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-red-200 bg-white text-red-600 shadow-sm transition hover:border-red-300 hover:bg-red-50 hover:text-red-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600"
+        >
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-4 w-4"
+          >
+            <path d="M3 6h18" />
+            <path d="M8 6V4h8v2" />
+            <path d="M19 6l-1 14H6L5 6" />
+            <path d="M10 11v5" />
+            <path d="M14 11v5" />
+          </svg>
+        </button>
+      )}
 
       {person.onEdit && (
         <button

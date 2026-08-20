@@ -8,7 +8,11 @@ import type { KinQuery, Person } from "./model";
 import { PathReducer } from "./path-reducer";
 import { resolveKinship } from "./resolve";
 
-function person(id: string, sex: "M" | "F", family: Partial<Person> = {}): Person {
+function person(
+  id: string,
+  sex: "M" | "F",
+  family: Partial<Person> = {},
+): Person {
   return { id, sex, spouseIds: [], ...family };
 }
 
@@ -46,21 +50,29 @@ describe("FamilyTreeGraph BFS and K-Path canonicalization", () => {
   ];
 
   it("finds the shortest raw genealogical path with BFS", () => {
-    const result = new FamilyTreeGraph(people).findShortestPath("ego", "cousin");
+    const result = new FamilyTreeGraph(people).findShortestPath(
+      "ego",
+      "cousin",
+    );
 
     expect(result?.rawPath).toEqual(["F", "F", "D", "S"]);
-    expect(result?.personIds).toEqual(["ego", "father", "gf", "aunt", "cousin"]);
+    expect(result?.personIds).toEqual([
+      "ego",
+      "father",
+      "gf",
+      "aunt",
+      "cousin",
+    ]);
     expect(result?.generationDistance).toBe(0);
   });
 
   it("collapses parent-child traversal into anthropological siblings", () => {
     expect(FamilyTreeGraph.canonicalize(["F", "S"])).toEqual(["B"]);
     expect(FamilyTreeGraph.canonicalize(["M", "D"])).toEqual(["Z"]);
-    expect(new FamilyTreeGraph(people).findShortestPath("ego", "cousin")?.canonicalPath).toEqual([
-      "F",
-      "Z",
-      "S",
-    ]);
+    expect(
+      new FamilyTreeGraph(people).findShortestPath("ego", "cousin")
+        ?.canonicalPath,
+    ).toEqual(["F", "Z", "S"]);
   });
 
   it("retains every equally short BFS path", () => {
@@ -83,6 +95,20 @@ describe("FamilyTreeGraph BFS and K-Path canonicalization", () => {
       ]),
     );
   });
+
+  it("makes a one-sided spouse declaration traversable in both directions", () => {
+    const graph = new FamilyTreeGraph([
+      person("wife", "F", { spouseIds: ["husband"] }),
+      person("husband", "M"),
+    ]);
+
+    expect(graph.findShortestPath("wife", "husband")?.rawPath).toEqual([
+      "H",
+    ]);
+    expect(graph.findShortestPath("husband", "wife")?.rawPath).toEqual([
+      "W",
+    ]);
+  });
 });
 
 describe("three-axis Shona algebra", () => {
@@ -93,12 +119,20 @@ describe("three-axis Shona algebra", () => {
       person("brother", "M", { fatherId: "father" }),
     ];
 
-    expect(resolve(people, { egoId: "ego", targetId: "brother", relativeAge: "older" }).title).toBe(
-      "Mukoma",
-    );
-    expect(resolve(people, { egoId: "ego", targetId: "brother", relativeAge: "younger" }).title).toBe(
-      "Munin'ina",
-    );
+    expect(
+      resolve(people, {
+        egoId: "ego",
+        targetId: "brother",
+        relativeAge: "older",
+      }).title,
+    ).toBe("Mukoma");
+    expect(
+      resolve(people, {
+        egoId: "ego",
+        targetId: "brother",
+        relativeAge: "younger",
+      }).title,
+    ).toBe("Munin'ina");
   });
 
   it("classifies cross-sex siblings as Hanzvadzi without age", () => {
@@ -108,7 +142,9 @@ describe("three-axis Shona algebra", () => {
       person("sister", "F", { motherId: "mother" }),
     ];
 
-    expect(resolve(people, { egoId: "ego", targetId: "sister" }).title).toBe("Hanzvadzi");
+    expect(resolve(people, { egoId: "ego", targetId: "sister" }).title).toBe(
+      "Hanzvadzi",
+    );
   });
 
   it("closes explicit sibling groups and keeps Hanzvadzi independent of seniority", () => {
@@ -237,30 +273,10 @@ describe("three-axis Shona algebra", () => {
       },
     ];
 
-    const tiriToEbbah = resolveKinship(
-      "tiri",
-      "ebbah",
-      people,
-      relationships,
-    );
-    const tinaToEbbah = resolveKinship(
-      "tina",
-      "ebbah",
-      people,
-      relationships,
-    );
-    const ebbahToTiri = resolveKinship(
-      "ebbah",
-      "tiri",
-      people,
-      relationships,
-    );
-    const ebbahToTina = resolveKinship(
-      "ebbah",
-      "tina",
-      people,
-      relationships,
-    );
+    const tiriToEbbah = resolveKinship("tiri", "ebbah", people, relationships);
+    const tinaToEbbah = resolveKinship("tina", "ebbah", people, relationships);
+    const ebbahToTiri = resolveKinship("ebbah", "tiri", people, relationships);
+    const ebbahToTina = resolveKinship("ebbah", "tina", people, relationships);
 
     expect(tiriToEbbah).toMatchObject({
       title: "Mai",
@@ -379,12 +395,10 @@ describe("three-axis Shona algebra", () => {
     for (const targetId of ["uncle", "uncle-son", "uncle-grandson"]) {
       expect(resolve(people, { egoId: "ego", targetId }).title).toBe("Sekuru");
     }
-    expect(resolve(people, { egoId: "ego", targetId: "uncle-grandson" }).traversal?.canonicalPath).toEqual([
-      "M",
-      "B",
-      "S",
-      "S",
-    ]);
+    expect(
+      resolve(people, { egoId: "ego", targetId: "uncle-grandson" }).traversal
+        ?.canonicalPath,
+    ).toEqual(["M", "B", "S", "S"]);
   });
 
   it("resolves M.B.D specifically as Mainini", () => {
@@ -396,7 +410,10 @@ describe("three-axis Shona algebra", () => {
       person("uncle-daughter", "F", { fatherId: "uncle" }),
     ];
 
-    const result = resolve(people, { egoId: "ego", targetId: "uncle-daughter" });
+    const result = resolve(people, {
+      egoId: "ego",
+      targetId: "uncle-daughter",
+    });
     expect(result.traversal?.canonicalPath).toEqual(["M", "B", "D"]);
     expect(result.title).toBe("Mainini");
   });
@@ -423,7 +440,7 @@ describe("three-axis Shona algebra", () => {
   );
 
   it.each(["ego-son", "ego-daughter"] as const)(
-    "resolves a male ego's child %s to his maternal uncle's daughter as Ambuya/Mbuya",
+    "resolves a male ego's child %s to his maternal uncle's daughter as Mbuya",
     (egoId) => {
       const result = resolve(maternalUncleDaughterFamily(), {
         egoId,
@@ -431,14 +448,14 @@ describe("three-axis Shona algebra", () => {
       });
 
       expect(result.traversal?.canonicalPath).toEqual(["F", "M", "B", "D"]);
-      expect(result.title).toBe("Ambuya");
-      expect(result.aliases).toContain("Mbuya");
+      expect(result.title).toBe("Mbuya");
+      expect(result.aliases).toBeUndefined();
     },
   );
 
   it.each([
     ["grandmothers-brother", "M", "B", "Sekuru"],
-    ["grandmothers-sister", "F", "Z", "Ambuya"],
+    ["grandmothers-sister", "F", "Z", "Mbuya"],
   ] as const)(
     "classifies a grandmother's sibling %s in ego's grandparent generation",
     (targetId, targetSex, siblingStep, expectedTitle) => {
@@ -452,11 +469,7 @@ describe("three-axis Shona algebra", () => {
 
       const result = resolve(people, { egoId: "ego", targetId });
 
-      expect(result.traversal?.canonicalPath).toEqual([
-        "M",
-        "M",
-        siblingStep,
-      ]);
+      expect(result.traversal?.canonicalPath).toEqual(["M", "M", siblingStep]);
       expect(result.traversal?.generationDistance).toBe(2);
       expect(result.status).toBe("known");
       expect(result.title).toBe(expectedTitle);
@@ -470,7 +483,7 @@ describe("three-axis Shona algebra", () => {
 
   it.each([
     ["grandmothers-male-cousin", "M", "B", "Sekuru"],
-    ["grandmothers-female-cousin", "F", "Z", "Ambuya"],
+    ["grandmothers-female-cousin", "F", "Z", "Mbuya"],
   ] as const)(
     "classifies a grandmother's cousin %s in ego's grandparent generation",
     (targetId, targetSex, reducedSiblingStep, expectedTitle) => {
@@ -497,11 +510,7 @@ describe("three-axis Shona algebra", () => {
         "B",
         targetSex === "M" ? "S" : "D",
       ]);
-      expect(result.reducedPath).toEqual([
-        "M",
-        "M",
-        reducedSiblingStep,
-      ]);
+      expect(result.reducedPath).toEqual(["M", "M", reducedSiblingStep]);
       expect(result.traversal?.generationDistance).toBe(2);
       expect(result.status).toBe("known");
       expect(result.title).toBe(expectedTitle);
@@ -511,17 +520,19 @@ describe("three-axis Shona algebra", () => {
   it.each(["S", "D"] as const)(
     "skews a male ego's F.Z.%s relation to Muzukuru",
     (childSex) => {
-    const people = [
-      person("pgf", "M"),
-      person("father", "M", { fatherId: "pgf" }),
-      person("aunt", "F", { fatherId: "pgf" }),
-      person("ego", "M", { fatherId: "father" }),
-      person("cousin", childSex === "S" ? "M" : "F", {
-        motherId: "aunt",
-      }),
-    ];
+      const people = [
+        person("pgf", "M"),
+        person("father", "M", { fatherId: "pgf" }),
+        person("aunt", "F", { fatherId: "pgf" }),
+        person("ego", "M", { fatherId: "father" }),
+        person("cousin", childSex === "S" ? "M" : "F", {
+          motherId: "aunt",
+        }),
+      ];
 
-    expect(resolve(people, { egoId: "ego", targetId: "cousin" }).title).toBe("Muzukuru");
+      expect(resolve(people, { egoId: "ego", targetId: "cousin" }).title).toBe(
+        "Muzukuru",
+      );
     },
   );
 
@@ -529,7 +540,7 @@ describe("three-axis Shona algebra", () => {
     ["aunts-son", "M", "S"],
     ["aunts-daughter", "F", "D"],
   ] as const)(
-    "resolves a female ego's father's sister's child %s as Mwana",
+    "promotes a female ego's father's sister's child %s to Muzukuru",
     (targetId, targetSex, childStep) => {
       const people = [
         person("paternal-grandfather", "M"),
@@ -543,20 +554,12 @@ describe("three-axis Shona algebra", () => {
 
       const result = resolve(people, { egoId: "ego", targetId });
 
-      expect(result.traversal?.rawPath).toEqual([
-        "F",
-        "F",
-        "D",
-        childStep,
-      ]);
-      expect(result.traversal?.canonicalPath).toEqual([
-        "F",
-        "Z",
-        childStep,
-      ]);
+      expect(result.traversal?.rawPath).toEqual(["F", "F", "D", childStep]);
+      expect(result.traversal?.canonicalPath).toEqual(["F", "Z", childStep]);
       expect(result.status).toBe("known");
-      expect(result.title).toBe("Mwana");
-      expect(result.ruleId).toBe("PATERNAL_AUNT_CHILD_FEMALE_EGO");
+      expect(result.title).toBe("Muzukuru");
+      expect(result.kinClass).toBe("MUZUKURU");
+      expect(result.ruleId).toBe("PATERNAL_AUNT_CHILD_TO_MUZUKURU");
     },
   );
 
@@ -575,9 +578,11 @@ describe("three-axis Shona algebra", () => {
       targetId: "mukuwasha",
     });
 
-    expect(muroora.title).toBe("Muroora");
+    expect(muroora.title).toBe("Mwana");
+    expect(muroora.aliases).toContain("Muroora");
     expect(muroora.socialTerm).toBe("Vanyarikani");
-    expect(mukuwasha.title).toBe("Mukuwasha");
+    expect(mukuwasha.title).toBe("Mwana");
+    expect(mukuwasha.aliases).toContain("Mukwasha");
     expect(mukuwasha.socialTerm).toBe("Vanyarikani");
   });
 
@@ -605,9 +610,9 @@ describe("three-axis Shona algebra", () => {
     });
     expect(sonInLawFather.title).toBe("Mukurungai");
     expect(sonInLawFather.socialTerm).toBe("Vanyarikani");
-    expect(resolve(people, { egoId: "ego", targetId: "son-in-law-sister" }).title).toBe(
-      "Hama yeVakuwasha",
-    );
+    expect(
+      resolve(people, { egoId: "ego", targetId: "son-in-law-sister" }).title,
+    ).toBe("Hama yeVakuwasha");
     const daughterInLawMother = resolve(people, {
       egoId: "ego",
       targetId: "daughter-in-law-mother",
@@ -668,16 +673,10 @@ describe("three-axis Shona algebra", () => {
     expect(titleFor("son-in-law-brother")).toBe("Mukuwasha");
     expect(titleFor("son-in-law-sister")).toBe("Hama yeVakuwasha");
     expect(titleFor("son-in-law-paternal-uncle")).toBe("Mukurungai");
-    expect(titleFor("son-in-law-paternal-aunt")).toBe(
-      "Hama yeVakuwasha",
-    );
-    expect(titleFor("son-in-law-maternal-uncle")).toBe(
-      "Hama yeVakuwasha",
-    );
+    expect(titleFor("son-in-law-paternal-aunt")).toBe("Hama yeVakuwasha");
+    expect(titleFor("son-in-law-maternal-uncle")).toBe("Hama yeVakuwasha");
     expect(titleFor("son-in-law-male-cousin")).toBe("Mukuwasha");
-    expect(titleFor("son-in-law-female-cousin")).toBe(
-      "Hama yeVakuwasha",
-    );
+    expect(titleFor("son-in-law-female-cousin")).toBe("Hama yeVakuwasha");
     expect(titleFor("son-in-law-child")).toBe("Muzukuru");
 
     expect(
@@ -743,9 +742,7 @@ describe("three-axis Shona algebra", () => {
     expect(titleFor("daughter-in-law-sister")).toBe("Muroora");
     expect(titleFor("daughter-in-law-paternal-uncle")).toBe("Mukurungai");
     expect(titleFor("daughter-in-law-paternal-aunt")).toBe("Muroora");
-    expect(titleFor("daughter-in-law-maternal-uncle")).toBe(
-      "Hama dzeMuroora",
-    );
+    expect(titleFor("daughter-in-law-maternal-uncle")).toBe("Hama dzeMuroora");
     expect(titleFor("daughter-in-law-male-cousin")).toBe("Tezvara");
     expect(titleFor("daughter-in-law-female-cousin")).toBe("Muroora");
     expect(titleFor("daughter-in-law-child")).toBe("Muzukuru");
@@ -794,19 +791,24 @@ describe("three-axis Shona algebra", () => {
       }),
     ];
 
-    expect(resolve(people, { egoId: "ego", targetId: "grandfather" }).title).toBe("Sekuru");
-    expect(resolve(people, { egoId: "ego", targetId: "ancestor" })).toMatchObject({
+    expect(
+      resolve(people, { egoId: "ego", targetId: "grandfather" }).title,
+    ).toBe("Sekuru");
+    expect(
+      resolve(people, { egoId: "ego", targetId: "ancestor" }),
+    ).toMatchObject({
       title: "Sekuru",
       ruleId: "RECURSIVE_MALE_GRANDPARENT_ANCESTOR",
     });
     expect(
       resolve(people, { egoId: "ego", targetId: "ancestor-mother" }),
     ).toMatchObject({
-      title: "Ambuya",
-      aliases: ["Mbuya"],
+      title: "Mbuya",
       ruleId: "RECURSIVE_FEMALE_GRANDPARENT_ANCESTOR",
     });
-    expect(resolve(people, { egoId: "ego", targetId: "grandchild" }).title).toBe("Muzukuru");
+    expect(
+      resolve(people, { egoId: "ego", targetId: "grandchild" }).title,
+    ).toBe("Muzukuru");
     expect(
       resolve(people, { egoId: "ego", targetId: "great-grandchild" }),
     ).toMatchObject({
@@ -820,7 +822,9 @@ describe("three-axis Shona algebra", () => {
       ruleId: "MUZUKURU_DESCENDANT",
     });
 
-    expect(resolve(people, { egoId: "ancestor", targetId: "ego" })).toMatchObject({
+    expect(
+      resolve(people, { egoId: "ancestor", targetId: "ego" }),
+    ).toMatchObject({
       title: "Muzukuru",
       ruleId: "MUZUKURU_DESCENDANT",
     });
@@ -852,8 +856,7 @@ describe("three-axis Shona algebra", () => {
     expect(
       resolve(people, { egoId: "ego", targetId: "great-great-grandmother" }),
     ).toMatchObject({
-      title: "Ambuya",
-      aliases: ["Mbuya"],
+      title: "Mbuya",
       ruleId: "RECURSIVE_FEMALE_GRANDPARENT_ANCESTOR",
     });
   });
@@ -871,13 +874,10 @@ describe("three-axis Shona algebra", () => {
       }),
     ];
 
-    expect(resolve(people, { egoId: "ego", targetId: "aunts-child" }).title).toBe(
-      "Muzukuru",
-    );
-    for (const targetId of [
-      "aunts-grandchild",
-      "aunts-great-grandchild",
-    ]) {
+    expect(
+      resolve(people, { egoId: "ego", targetId: "aunts-child" }).title,
+    ).toBe("Muzukuru");
+    for (const targetId of ["aunts-grandchild", "aunts-great-grandchild"]) {
       expect(resolve(people, { egoId: "ego", targetId })).toMatchObject({
         title: "Muzukuru",
         ruleId: "MUZUKURU_DESCENDANT",
@@ -909,7 +909,11 @@ describe("three-axis Shona algebra", () => {
     const people = [
       person("wf", "M"),
       person("wm", "F"),
-      person("wife", "F", { fatherId: "wf", motherId: "wm", spouseIds: ["ego"] }),
+      person("wife", "F", {
+        fatherId: "wf",
+        motherId: "wm",
+        spouseIds: ["ego"],
+      }),
       person("wb", "M", { fatherId: "wf" }),
       person("wz", "F", { fatherId: "wf" }),
       person("ego", "M", { spouseIds: ["wife"] }),
@@ -926,13 +930,380 @@ describe("three-axis Shona algebra", () => {
     expect(fatherInLaw.title).toBe("Tezvara");
     expect(fatherInLaw.socialTerm).toBe("Vanyarikani");
     expect(motherInLaw.title).toBe("Ambuya");
-    expect(motherInLaw.aliases).toEqual(["Mbuyawasha", "Ambuyawasha"]);
+    expect(motherInLaw.kinClass).toBe("MOTHER_IN_LAW");
+    expect(motherInLaw.aliases).toBeUndefined();
     expect(motherInLaw.socialTerm).toBe("Vanyarikani");
     expect(brotherInLaw.title).toBe("Tezvara");
     expect(brotherInLaw.aliases).toContain("Tsano");
     expect(brotherInLaw.socialTerm).toBe("Vanyarikani");
     expect(sisterInLaw.title).toBe("Muramu");
     expect(sisterInLaw.socialTerm).toBe("Vasekedzani");
+  });
+
+  it("distinguishes the homonymous Ambuya grandmother and mother-in-law classes", () => {
+    const people = [
+      person("grandmother", "F", { spouseIds: ["grandfather"] }),
+      person("grandfather", "M", { spouseIds: ["grandmother"] }),
+      person("mother", "F", { motherId: "grandmother" }),
+      person("wife-mother", "F", { spouseIds: ["wife-father"] }),
+      person("wife-father", "M", { spouseIds: ["wife-mother"] }),
+      person("wife", "F", {
+        motherId: "wife-mother",
+        spouseIds: ["ego"],
+      }),
+      person("ego", "M", { motherId: "mother", spouseIds: ["wife"] }),
+    ];
+
+    const grandmother = resolve(people, {
+      egoId: "ego",
+      targetId: "grandmother",
+    });
+    const motherInLaw = resolve(people, {
+      egoId: "ego",
+      targetId: "wife-mother",
+    });
+    const grandmothersHusband = resolve(people, {
+      egoId: "ego",
+      targetId: "grandfather",
+    });
+    const motherInLawsHusband = resolve(people, {
+      egoId: "ego",
+      targetId: "wife-father",
+    });
+
+    expect(grandmother.title).toBe("Mbuya");
+    expect(grandmother.kinClass).toBe("GRANDMOTHER");
+    expect(motherInLaw.title).toBe("Ambuya");
+    expect(motherInLaw.kinClass).toBe("MOTHER_IN_LAW");
+    expect(grandmothersHusband.title).toBe("Sekuru");
+    expect(motherInLawsHusband.title).toBe("Tezvara");
+  });
+
+  it.each([
+    [
+      "female ego's husband to her brother's wife",
+      "female-egos-husband",
+      "brothers-wife",
+      ["W", "B", "W"],
+      "Ambuya",
+      "WIFES_BROTHERS_WIFE",
+    ],
+    [
+      "female ego's brother's wife to her husband",
+      "brothers-wife",
+      "female-egos-husband",
+      ["H", "Z", "H"],
+      "Mukuwasha",
+      "WIFE_RECEIVER_MALE_PEER",
+    ],
+  ] as const)(
+    "resolves %s across the reciprocal affinal alliance",
+    (
+      _caseName,
+      egoId,
+      targetId,
+      canonicalPath,
+      expectedTitle,
+      expectedKinClass,
+    ) => {
+      const people = [
+        person("siblings-father", "M"),
+        person("female-ego", "F", {
+          fatherId: "siblings-father",
+          spouseIds: ["female-egos-husband"],
+        }),
+        person("female-egos-husband", "M", {
+          spouseIds: ["female-ego"],
+        }),
+        person("brother", "M", {
+          fatherId: "siblings-father",
+          spouseIds: ["brothers-wife"],
+        }),
+        person("brothers-wife", "F", { spouseIds: ["brother"] }),
+      ];
+
+      const result = resolve(people, { egoId, targetId });
+
+      expect(result.traversal?.canonicalPath).toEqual(canonicalPath);
+      expect(result.title).toBe(expectedTitle);
+      expect(result.kinClass).toBe(expectedKinClass);
+      expect(result.socialTerm).toBe("Vanyarikani");
+    },
+  );
+
+  it("resolves a male ego's brother to the ego's wife's brother's wife as Ambuya", () => {
+    const people = [
+      person("ego-family-father", "M"),
+      person("male-ego", "M", {
+        fatherId: "ego-family-father",
+        spouseIds: ["wife"],
+      }),
+      person("egos-brother", "M", { fatherId: "ego-family-father" }),
+      person("wife-family-father", "M"),
+      person("wife", "F", {
+        fatherId: "wife-family-father",
+        spouseIds: ["male-ego"],
+      }),
+      person("wifes-brother", "M", {
+        fatherId: "wife-family-father",
+        spouseIds: ["wifes-brothers-wife"],
+      }),
+      person("wifes-brothers-wife", "F", {
+        spouseIds: ["wifes-brother"],
+      }),
+    ];
+
+    const result = resolve(people, {
+      egoId: "egos-brother",
+      targetId: "wifes-brothers-wife",
+    });
+
+    expect(result.traversal?.canonicalPath).toEqual(["B", "W", "B", "W"]);
+    expect(result.title).toBe("Ambuya");
+    expect(result.kinClass).toBe("WIFES_BROTHERS_WIFE");
+    expect(result.socialTerm).toBe("Vanyarikani");
+    expect(result.ruleId).toBe("AFFINAL_WIFES_BROTHERS_WIFE");
+  });
+
+  it("resolves the ego's wife's brother's wife reciprocally to the male ego's brother as Mukuwasha", () => {
+    const people = [
+      person("ego-family-father", "M"),
+      person("male-ego", "M", {
+        fatherId: "ego-family-father",
+        spouseIds: ["wife"],
+      }),
+      person("egos-brother", "M", { fatherId: "ego-family-father" }),
+      person("wife-family-father", "M"),
+      person("wife", "F", {
+        fatherId: "wife-family-father",
+        spouseIds: ["male-ego"],
+      }),
+      person("wifes-brother", "M", {
+        fatherId: "wife-family-father",
+        spouseIds: ["wifes-brothers-wife"],
+      }),
+      person("wifes-brothers-wife", "F", {
+        spouseIds: ["wifes-brother"],
+      }),
+    ];
+
+    const result = resolve(people, {
+      egoId: "wifes-brothers-wife",
+      targetId: "egos-brother",
+    });
+
+    expect(result.traversal?.canonicalPath).toEqual(["H", "Z", "H", "B"]);
+    expect(result.title).toBe("Mukuwasha");
+    expect(result.kinClass).toBe("WIFE_RECEIVER_MALE_PEER");
+    expect(result.socialTerm).toBe("Vanyarikani");
+    expect(result.ruleId).toBe("RECIPROCAL_AMBUYA_TO_MUKUWASHA");
+  });
+
+  it("resolves a female ego's mother's sister's husband's mother as Mbuya", () => {
+    const people = [
+      person("maternal-grandfather", "M"),
+      person("mother", "F", {
+        fatherId: "maternal-grandfather",
+        birthOrder: 2,
+      }),
+      person("mothers-sister", "F", {
+        fatherId: "maternal-grandfather",
+        spouseIds: ["aunts-husband"],
+        birthOrder: 1,
+      }),
+      person("aunts-husband", "M", {
+        motherId: "aunts-husbands-mother",
+        spouseIds: ["mothers-sister"],
+      }),
+      person("aunts-husbands-mother", "F"),
+      person("female-ego", "F", { motherId: "mother" }),
+    ];
+
+    const result = resolve(people, {
+      egoId: "female-ego",
+      targetId: "aunts-husbands-mother",
+    });
+
+    expect(result.traversal?.canonicalPath).toEqual(["M", "Z", "H", "M"]);
+    expect(result.title).toBe("Mbuya");
+    expect(result.kinClass).toBe("GRANDMOTHER");
+    expect(result.derivation).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("SEMANTIC_CLASS_CONTINUATION"),
+      ]),
+    );
+
+    const reciprocal = resolve(people, {
+      egoId: "aunts-husbands-mother",
+      targetId: "female-ego",
+    });
+    expect(reciprocal.title).toBe("Muzukuru");
+    expect(reciprocal.kinClass).toBe("MUZUKURU");
+    expect(reciprocal.ruleId).toBe("AFFINAL_CHILD_IN_LAW_CHILD");
+  });
+
+  it.each([
+    [
+      "wife's sister to the male ego's mother",
+      "wifes-sister",
+      "ego-mother",
+      ["Z", "H", "M"],
+      "Vamwene",
+      "MOTHER_IN_LAW",
+    ],
+    [
+      "male ego's mother to his wife's sister",
+      "ego-mother",
+      "wifes-sister",
+      ["S", "W", "Z"],
+      "Muroora",
+      undefined,
+    ],
+  ] as const)(
+    "resolves %s through classificatory affinal inheritance",
+    (
+      _caseName,
+      egoId,
+      targetId,
+      canonicalPath,
+      expectedTitle,
+      expectedKinClass,
+    ) => {
+      const people = [
+        person("ego-mother", "F"),
+        person("male-ego", "M", {
+          motherId: "ego-mother",
+          spouseIds: ["wife"],
+        }),
+        person("wife-father", "M"),
+        person("wife", "F", {
+          fatherId: "wife-father",
+          spouseIds: ["male-ego"],
+        }),
+        person("wifes-sister", "F", { fatherId: "wife-father" }),
+      ];
+
+      const result = resolve(people, { egoId, targetId });
+
+      expect(result.traversal?.canonicalPath).toEqual(canonicalPath);
+      expect(result.title).toBe(expectedTitle);
+      expect(result.kinClass).toBe(expectedKinClass);
+      expect(result.socialTerm).toBe("Vanyarikani");
+    },
+  );
+
+  it("composes an affinal parent class through a longer same-sex sibling-equivalent path", () => {
+    const people = [
+      person("grandfather", "M"),
+      person("father", "M", { fatherId: "grandfather" }),
+      person("fathers-brother", "M", { fatherId: "grandfather" }),
+      person("female-ego", "F", { fatherId: "father" }),
+      person("female-parallel-cousin", "F", {
+        fatherId: "fathers-brother",
+        spouseIds: ["cousins-husband"],
+      }),
+      person("cousins-husband", "M", {
+        motherId: "husbands-mother",
+        spouseIds: ["female-parallel-cousin"],
+      }),
+      person("husbands-mother", "F"),
+    ];
+
+    const result = resolve(people, {
+      egoId: "female-ego",
+      targetId: "husbands-mother",
+    });
+
+    expect(result.title).toBe("Vamwene");
+    expect(result.kinClass).toBe("MOTHER_IN_LAW");
+    expect(result.ruleId).toBe(
+      "COMPOSED_SAME_SEX_SIBLING_AFFINAL_INHERITANCE",
+    );
+    expect(result.socialTerm).toBe("Vanyarikani");
+  });
+
+  it("reuses the Mwana class when an internal marriage continues to a spouse's parent", () => {
+    const people = [
+      person("siblings-father", "M"),
+      person("male-ego", "M", { fatherId: "siblings-father" }),
+      person("brother", "M", { fatherId: "siblings-father" }),
+      person("brothers-son", "M", {
+        fatherId: "brother",
+        spouseIds: ["sons-wife"],
+      }),
+      person("sons-wife", "F", {
+        motherId: "wifes-mother",
+        spouseIds: ["brothers-son"],
+      }),
+      person("wifes-mother", "F"),
+    ];
+
+    const result = resolve(people, {
+      egoId: "male-ego",
+      targetId: "wifes-mother",
+    });
+
+    expect(result.title).toBe("Mukurungai");
+    expect(result.ruleId).toBe("AFFINAL_CO_PARENT_IN_LAW");
+    expect(result.derivation).toContain(
+      "COMPOSED_MWANA_ALLIANCE: an already-resolved Mwana prefix was compacted to its fundamental child class before applying the remaining affinal suffix.",
+    );
+    expect(result.socialTerm).toBe("Vanyarikani");
+  });
+
+  it("classifies every graph-connected pair without falling through to unrelated or unmapped", () => {
+    const people = [
+      person("ego", "M", { spouseIds: ["wife"] }),
+      person("wife-father", "M"),
+      person("wife", "F", {
+        fatherId: "wife-father",
+        spouseIds: ["ego"],
+      }),
+      person("wifes-sister", "F", {
+        fatherId: "wife-father",
+        spouseIds: ["sisters-husband"],
+      }),
+      person("husbands-father", "M"),
+      person("sisters-husband", "M", {
+        fatherId: "husbands-father",
+        spouseIds: ["wifes-sister"],
+      }),
+      person("husbands-sister", "F", { fatherId: "husbands-father" }),
+    ];
+    const resolver = resolverFor(people);
+    const acceptableStatuses = new Set(["known", "ambiguous", "broad"]);
+
+    for (const ego of people) {
+      for (const target of people) {
+        const result = resolver.resolve({
+          egoId: ego.id,
+          targetId: target.id,
+        });
+
+        expect(
+          acceptableStatuses.has(result.status),
+          `${ego.id} -> ${target.id} unexpectedly resolved as ${result.status}`,
+        ).toBe(true);
+      }
+    }
+
+    const formerlyUnmapped = resolver.resolve({
+      egoId: "ego",
+      targetId: "husbands-sister",
+    });
+    expect(formerlyUnmapped.status).toBe("broad");
+    expect(formerlyUnmapped.title).toBe("Hama");
+    expect(formerlyUnmapped.ruleId).toBe("COMPOSED_REACHABLE_RELATIVE");
+  });
+
+  it("reserves unrelated for people with no graph path", () => {
+    const result = resolve(
+      [person("ego", "M"), person("stranger", "F")],
+      { egoId: "ego", targetId: "stranger" },
+    );
+
+    expect(result.status).toBe("unrelated");
+    expect(result.title).toBe("Mutorwa / Relationship Unmapped");
   });
 
   it("resolves a male ego's wife's brother as Tsano / Tezvara", () => {
@@ -1040,14 +1411,15 @@ describe("three-axis Shona algebra", () => {
     expect(fatherInLaw.title).toBe("Tezvara");
     expect(fatherInLaw.socialTerm).toBe("Vanyarikani");
     expect(motherInLaw.title).toBe("Vamwene");
+    expect(motherInLaw.kinClass).toBe("MOTHER_IN_LAW");
     expect(motherInLaw.socialTerm).toBe("Vanyarikani");
     expect(sisterInLaw.title).toBe("Tete");
     expect(sisterInLaw.socialTerm).toBe("Vanyarikani");
     expect(olderBrotherInLaw.title).toBe("Bamkuru");
-    expect(olderBrotherInLaw.aliases).toEqual(["Babamukuru", "Muramu"]);
+    expect(olderBrotherInLaw.aliases).toEqual(["Bamkuru", "Muramu"]);
     expect(olderBrotherInLaw.socialTerm).toBe("Vasekedzani");
     expect(youngerBrotherInLaw.title).toBe("Bamnini");
-    expect(youngerBrotherInLaw.aliases).toEqual(["Babamunini", "Muramu"]);
+    expect(youngerBrotherInLaw.aliases).toEqual(["Bamnini", "Muramu"]);
     expect(youngerBrotherInLaw.socialTerm).toBe("Vasekedzani");
   });
 
@@ -1341,7 +1713,7 @@ describe("three-axis Shona algebra", () => {
     expect(younger.title).toBe("Bamnini");
   });
 
-  it("projects a classificatory Mwana's spouse to Muroora or Mukuwasha", () => {
+  it("preserves Mwana rank and adds Muroora or Mukwasha across marriage", () => {
     const people = [
       person("father", "M"),
       person("ego", "M", { fatherId: "father" }),
@@ -1360,12 +1732,19 @@ describe("three-axis Shona algebra", () => {
       }),
     ];
 
-    expect(resolve(people, { egoId: "ego", targetId: "sons-wife" }).title).toBe(
-      "Muroora",
-    );
-    expect(
-      resolve(people, { egoId: "ego", targetId: "daughters-husband" }).title,
-    ).toBe("Mukuwasha");
+    const femaleSpouse = resolve(people, {
+      egoId: "ego",
+      targetId: "sons-wife",
+    });
+    const maleSpouse = resolve(people, {
+      egoId: "ego",
+      targetId: "daughters-husband",
+    });
+
+    expect(femaleSpouse.title).toBe("Mwana");
+    expect(femaleSpouse.aliases).toContain("Muroora");
+    expect(maleSpouse.title).toBe("Mwana");
+    expect(maleSpouse.aliases).toContain("Mukwasha");
   });
 
   it("projects same-sex sibling spouses from Mukoma and Munin'ina", () => {
@@ -1415,16 +1794,24 @@ describe("three-axis Shona algebra", () => {
     ];
 
     expect(
-      resolve(people, { egoId: "male-ego", targetId: "older-brothers-wife" }).title,
+      resolve(people, { egoId: "male-ego", targetId: "older-brothers-wife" })
+        .title,
     ).toBe("Maiguru");
     expect(
-      resolve(people, { egoId: "male-ego", targetId: "younger-brothers-wife" }).title,
+      resolve(people, { egoId: "male-ego", targetId: "younger-brothers-wife" })
+        .title,
     ).toBe("Mainini");
     expect(
-      resolve(people, { egoId: "female-ego", targetId: "older-sisters-husband" }).title,
+      resolve(people, {
+        egoId: "female-ego",
+        targetId: "older-sisters-husband",
+      }).title,
     ).toBe("Bamkuru");
     expect(
-      resolve(people, { egoId: "female-ego", targetId: "younger-sisters-husband" }).title,
+      resolve(people, {
+        egoId: "female-ego",
+        targetId: "younger-sisters-husband",
+      }).title,
     ).toBe("Bamnini");
   });
 
@@ -1514,8 +1901,226 @@ describe("three-axis Shona algebra", () => {
     });
 
     expect(mbuya.title).toBe("Mbuya");
-    expect(mbuya.aliases).toContain("Ambuya");
+    expect(mbuya.aliases).toBeUndefined();
     expect(bamkuru.title).toBe("Bamkuru");
+  });
+
+  describe("terminal spouses inherit the source relative's classificatory rank", () => {
+    const people = [
+      person("brothers-father", "M"),
+      person("older-brother", "M", {
+        fatherId: "brothers-father",
+        spouseIds: ["older-brothers-wife"],
+        birthOrder: 1,
+      }),
+      person("male-sibling-ego", "M", {
+        fatherId: "brothers-father",
+        birthOrder: 2,
+      }),
+      person("younger-brother", "M", {
+        fatherId: "brothers-father",
+        spouseIds: ["younger-brothers-wife"],
+        birthOrder: 3,
+      }),
+      person("older-brothers-wife", "F", {
+        spouseIds: ["older-brother"],
+      }),
+      person("younger-brothers-wife", "F", {
+        spouseIds: ["younger-brother"],
+      }),
+      person("male-egos-sister", "F", {
+        fatherId: "brothers-father",
+        spouseIds: ["sisters-husband"],
+      }),
+      person("sisters-husband", "M", {
+        spouseIds: ["male-egos-sister"],
+      }),
+
+      person("sisters-mother", "F"),
+      person("older-sister", "F", {
+        motherId: "sisters-mother",
+        spouseIds: ["older-sisters-husband"],
+        birthOrder: 1,
+      }),
+      person("female-sibling-ego", "F", {
+        motherId: "sisters-mother",
+        birthOrder: 2,
+      }),
+      person("younger-sister", "F", {
+        motherId: "sisters-mother",
+        spouseIds: ["younger-sisters-husband"],
+        birthOrder: 3,
+      }),
+      person("older-sisters-husband", "M", {
+        spouseIds: ["older-sister"],
+      }),
+      person("younger-sisters-husband", "M", {
+        spouseIds: ["younger-sister"],
+      }),
+      person("female-egos-brother", "M", {
+        motherId: "sisters-mother",
+        spouseIds: ["brothers-wife"],
+      }),
+      person("brothers-wife", "F", {
+        spouseIds: ["female-egos-brother"],
+      }),
+
+      person("child-ego", "M"),
+      person("son", "M", {
+        fatherId: "child-ego",
+        spouseIds: ["sons-wife"],
+      }),
+      person("sons-wife", "F", { spouseIds: ["son"] }),
+      person("daughter", "F", {
+        fatherId: "child-ego",
+        spouseIds: ["daughters-husband"],
+      }),
+      person("daughters-husband", "M", { spouseIds: ["daughter"] }),
+      person("grandson", "M", {
+        fatherId: "son",
+        spouseIds: ["grandsons-wife"],
+      }),
+      person("grandsons-wife", "F", { spouseIds: ["grandson"] }),
+      person("granddaughter", "F", {
+        fatherId: "son",
+        spouseIds: ["granddaughters-husband"],
+      }),
+      person("granddaughters-husband", "M", {
+        spouseIds: ["granddaughter"],
+      }),
+
+      person("grandparent-ego", "M", { motherId: "grandparent-mother" }),
+      person("grandparent-mother", "F", {
+        fatherId: "sekuru-source",
+        motherId: "ambuya-source",
+      }),
+      person("sekuru-source", "M", { spouseIds: ["sekuru-wife"] }),
+      person("sekuru-wife", "F", { spouseIds: ["sekuru-source"] }),
+      person("ambuya-source", "F", { spouseIds: ["ambuya-husband"] }),
+      person("ambuya-husband", "M", { spouseIds: ["ambuya-source"] }),
+    ];
+
+    const cases = [
+      [
+        "Mukoma to female spouse",
+        "male-sibling-ego",
+        "older-brother",
+        "older-brothers-wife",
+        "Mukoma",
+        ["Maiguru"],
+      ],
+      [
+        "Mukoma to male spouse",
+        "female-sibling-ego",
+        "older-sister",
+        "older-sisters-husband",
+        "Mukoma",
+        ["Bamkuru"],
+      ],
+      [
+        "Munin'ina to female spouse",
+        "male-sibling-ego",
+        "younger-brother",
+        "younger-brothers-wife",
+        "Munin'ina",
+        ["Mainini"],
+      ],
+      [
+        "Munin'ina to male spouse",
+        "female-sibling-ego",
+        "younger-sister",
+        "younger-sisters-husband",
+        "Munin'ina",
+        ["Bamnini"],
+      ],
+      [
+        "Sekuru to female spouse",
+        "grandparent-ego",
+        "sekuru-source",
+        "sekuru-wife",
+        "Sekuru",
+        ["Mbuya"],
+      ],
+      [
+        "Mbuya to male spouse",
+        "grandparent-ego",
+        "ambuya-source",
+        "ambuya-husband",
+        "Mbuya",
+        ["Sekuru"],
+      ],
+      [
+        "Muzukuru to female spouse",
+        "child-ego",
+        "grandson",
+        "grandsons-wife",
+        "Muzukuru",
+        ["Muzukuru"],
+      ],
+      [
+        "Muzukuru to male spouse",
+        "child-ego",
+        "granddaughter",
+        "granddaughters-husband",
+        "Muzukuru",
+        ["Muzukuru"],
+      ],
+      [
+        "Mwana to female spouse",
+        "child-ego",
+        "son",
+        "sons-wife",
+        "Mwana",
+        ["Mwana", "Muroora"],
+      ],
+      [
+        "Mwana to male spouse",
+        "child-ego",
+        "daughter",
+        "daughters-husband",
+        "Mwana",
+        ["Mwana", "Mukwasha"],
+      ],
+      [
+        "Hanzvadzi to female spouse",
+        "female-sibling-ego",
+        "female-egos-brother",
+        "brothers-wife",
+        "Hanzvadzi",
+        ["Maiguru", "Muroora"],
+      ],
+      [
+        "Hanzvadzi to male spouse",
+        "male-sibling-ego",
+        "male-egos-sister",
+        "sisters-husband",
+        "Hanzvadzi",
+        ["Tsano", "Mukwasha"],
+      ],
+    ] as const;
+
+    it.each(cases)(
+      "%s",
+      (
+        _caseName,
+        egoId,
+        sourceId,
+        spouseId,
+        expectedSourceTitle,
+        expectedSpouseTerms,
+      ) => {
+        const source = resolve(people, { egoId, targetId: sourceId });
+        const spouse = resolve(people, { egoId, targetId: spouseId });
+        const actualSpouseTerms = [spouse.title, ...(spouse.aliases ?? [])]
+          .flatMap((title) => title.split("/"))
+          .map((title) => title.trim());
+
+        expect(source.title).toBe(expectedSourceTitle);
+        expect(actualSpouseTerms).toEqual(
+          expect.arrayContaining([...expectedSpouseTerms]),
+        );
+      },
+    );
   });
 
   it.each([
@@ -1524,7 +2129,7 @@ describe("three-axis Shona algebra", () => {
       "maternal-uncles-wife",
       ["H", "M", "B", "W"],
       "Mbuya",
-      "Ambuya",
+      undefined,
     ],
     [
       "maternal-uncles-wife",
@@ -1708,7 +2313,7 @@ describe("three-axis Shona algebra", () => {
 
     expect(grandfather.title).toBe("Sekuru");
     expect(grandfather.socialTerm).toBe("Vasekedzani");
-    expect(grandmother.title).toBe("Ambuya");
+    expect(grandmother.title).toBe("Mbuya");
     expect(grandmother.socialTerm).toBe("Vasekedzani");
     expect(uncle.title).toBe("Tezvara");
     expect(uncle.socialTerm).toBe("Vanyarikani");
@@ -1719,18 +2324,15 @@ describe("three-axis Shona algebra", () => {
   it("applies the maternal generational transformation recursively", () => {
     // Use an explicit K-path reduction test because a graph-native person cannot
     // give two mothers to the same sibling; the law itself is algebraic.
-    const result = new PathReducer().reduce(
-      ["B", "M", "B", "S"],
-      {
-        egoId: "ego",
-        targetId: "uncle-son",
-        egoSex: "M",
-        targetSex: "M",
-        relativeAge: "unknown",
-        structuralRelativeAge: "unknown",
-        generationDistance: 0,
-      },
-    );
+    const result = new PathReducer().reduce(["B", "M", "B", "S"], {
+      egoId: "ego",
+      targetId: "uncle-son",
+      egoSex: "M",
+      targetSex: "M",
+      relativeAge: "unknown",
+      siblingSeniorities: [],
+      generationDistance: 0,
+    });
     expect(result.reducedPath).toEqual(["M", "B", "S"]);
   });
 
@@ -1751,67 +2353,53 @@ describe("three-axis Shona algebra", () => {
 
 describe("legacy application adapter", () => {
   it("treats parentage as full classificatory lineage", () => {
-      const people: LegacyPerson[] = [
-        {
-          id: "ego",
-          firstName: "Ego",
-          surname: "M",
-          sex: "male",
-          dateOfBirth: "2000-01-01",
-        },
-        { id: "father", firstName: "Father", surname: "M", sex: "male" },
-        { id: "uncle", firstName: "Uncle", surname: "M", sex: "male" },
-        {
-          id: "cousin",
-          firstName: "Cousin",
-          surname: "M",
-          sex: "male",
-          dateOfBirth: "1998-01-01",
-        },
-      ];
-      const relationships: Relationship[] = [
-        {
-          id: "parent",
-          type: "PARENT_OF",
-          personAId: "father",
-          personBId: "ego",
-        },
-        {
-          id: "father-uncle",
-          type: "SIBLING_OF",
-          personAId: "uncle",
-          personBId: "father",
-          seniority: "A_OLDER",
-        },
-        {
-          id: "uncle-cousin",
-          type: "PARENT_OF",
-          personAId: "uncle",
-          personBId: "cousin",
-        },
-      ];
+    const people: LegacyPerson[] = [
+      {
+        id: "ego",
+        firstName: "Ego",
+        surname: "M",
+        sex: "male",
+        dateOfBirth: "2000-01-01",
+      },
+      { id: "father", firstName: "Father", surname: "M", sex: "male" },
+      { id: "uncle", firstName: "Uncle", surname: "M", sex: "male" },
+      {
+        id: "cousin",
+        firstName: "Cousin",
+        surname: "M",
+        sex: "male",
+        dateOfBirth: "1998-01-01",
+      },
+    ];
+    const relationships: Relationship[] = [
+      {
+        id: "parent",
+        type: "PARENT_OF",
+        personAId: "father",
+        personBId: "ego",
+      },
+      {
+        id: "father-uncle",
+        type: "SIBLING_OF",
+        personAId: "uncle",
+        personBId: "father",
+        seniority: "A_OLDER",
+      },
+      {
+        id: "uncle-cousin",
+        type: "PARENT_OF",
+        personAId: "uncle",
+        personBId: "cousin",
+      },
+    ];
 
-      const pibling = resolveKinship(
-        "ego",
-        "uncle",
-        people,
-        relationships,
-      );
-      const cousin = resolveKinship(
-        "ego",
-        "cousin",
-        people,
-        relationships,
-      );
+    const pibling = resolveKinship("ego", "uncle", people, relationships);
+    const cousin = resolveKinship("ego", "cousin", people, relationships);
 
-      expect(pibling.path?.steps).toEqual(["father", "brother"]);
-      expect(pibling.title).toBe("Bamkuru");
-      expect(cousin.path?.steps).toEqual([
-        "father",
-        "brother",
-        "son",
-      ]);
-      expect(cousin.title).toBe("Mukoma");
+    expect(pibling.path?.steps).toEqual(["father", "brother"]);
+    expect(pibling.title).toBe("Bamkuru");
+    expect(cousin.path?.steps).toEqual(["father", "brother", "son"]);
+    expect(cousin.title).toBe("Mukoma");
   });
 
   it("includes a spouse-derived parent's piblings and cousins in the child's lineage", () => {
@@ -1835,8 +2423,18 @@ describe("legacy application adapter", () => {
       },
     ];
     const relationships: Relationship[] = [
-      { id: "mother-ego", type: "PARENT_OF", personAId: "mother", personBId: "ego" },
-      { id: "marriage", type: "SPOUSE_OF", personAId: "mother", personBId: "father" },
+      {
+        id: "mother-ego",
+        type: "PARENT_OF",
+        personAId: "mother",
+        personBId: "ego",
+      },
+      {
+        id: "marriage",
+        type: "SPOUSE_OF",
+        personAId: "mother",
+        personBId: "father",
+      },
       {
         id: "siblings",
         type: "SIBLING_OF",
@@ -1852,27 +2450,13 @@ describe("legacy application adapter", () => {
       },
     ];
 
-    const pibling = resolveKinship(
-      "ego",
-      "pibling",
-      people,
-      relationships,
-    );
-    const cousin = resolveKinship(
-      "ego",
-      "cousin",
-      people,
-      relationships,
-    );
+    const pibling = resolveKinship("ego", "pibling", people, relationships);
+    const cousin = resolveKinship("ego", "cousin", people, relationships);
 
     expect(pibling.path?.steps).toEqual(["father", "brother"]);
     expect(pibling.status).toBe("known");
     expect(pibling.title).toBe("Bamnini");
-    expect(cousin.path?.steps).toEqual([
-      "father",
-      "brother",
-      "son",
-    ]);
+    expect(cousin.path?.steps).toEqual(["father", "brother", "son"]);
     expect(cousin.status).toBe("known");
     expect(cousin.title).toBe("Mukoma");
   });
@@ -1886,9 +2470,24 @@ describe("legacy application adapter", () => {
       { id: "johnson-father", firstName: "Father", surname: "M", sex: "male" },
     ];
     const relationships: Relationship[] = [
-      { id: "ebba-tiri", type: "PARENT_OF", personAId: "ebba", personBId: "tiri" },
-      { id: "ebba-tina", type: "PARENT_OF", personAId: "ebba", personBId: "tina" },
-      { id: "ebba-johnson", type: "SPOUSE_OF", personAId: "ebba", personBId: "johnson" },
+      {
+        id: "ebba-tiri",
+        type: "PARENT_OF",
+        personAId: "ebba",
+        personBId: "tiri",
+      },
+      {
+        id: "ebba-tina",
+        type: "PARENT_OF",
+        personAId: "ebba",
+        personBId: "tina",
+      },
+      {
+        id: "ebba-johnson",
+        type: "SPOUSE_OF",
+        personAId: "ebba",
+        personBId: "johnson",
+      },
       {
         id: "johnson-father",
         type: "PARENT_OF",
@@ -1897,18 +2496,8 @@ describe("legacy application adapter", () => {
       },
     ];
 
-    const father = resolveKinship(
-      "tiri",
-      "johnson",
-      people,
-      relationships,
-    );
-    const child = resolveKinship(
-      "johnson",
-      "tiri",
-      people,
-      relationships,
-    );
+    const father = resolveKinship("tiri", "johnson", people, relationships);
+    const child = resolveKinship("johnson", "tiri", people, relationships);
     const johnsonsFather = resolveKinship(
       "tiri",
       "johnson-father",
@@ -1939,8 +2528,18 @@ describe("legacy application adapter", () => {
       { id: "child", firstName: "Child", surname: "M", sex: "female" },
     ];
     const relationships: Relationship[] = [
-      { id: "father-child", type: "PARENT_OF", personAId: "father", personBId: "child" },
-      { id: "marriage", type: "SPOUSE_OF", personAId: "father", personBId: "wife" },
+      {
+        id: "father-child",
+        type: "PARENT_OF",
+        personAId: "father",
+        personBId: "child",
+      },
+      {
+        id: "marriage",
+        type: "SPOUSE_OF",
+        personAId: "father",
+        personBId: "wife",
+      },
     ];
 
     const result = resolveKinship("child", "wife", people, relationships);
@@ -1956,14 +2555,24 @@ describe("legacy application adapter", () => {
       { id: "tiri", firstName: "Tiri", surname: "M", sex: "male" },
     ];
     const relationships: Relationship[] = [
-      { id: "ebba-tiri", type: "PARENT_OF", personAId: "ebba", personBId: "tiri" },
+      {
+        id: "ebba-tiri",
+        type: "PARENT_OF",
+        personAId: "ebba",
+        personBId: "tiri",
+      },
       {
         id: "johnson-tiri",
         type: "PARENT_OF",
         personAId: "johnson",
         personBId: "tiri",
       },
-      { id: "marriage", type: "SPOUSE_OF", personAId: "ebba", personBId: "johnson" },
+      {
+        id: "marriage",
+        type: "SPOUSE_OF",
+        personAId: "ebba",
+        personBId: "johnson",
+      },
     ];
 
     const result = resolveKinship("tiri", "johnson", people, relationships);
@@ -1993,12 +2602,7 @@ describe("legacy application adapter", () => {
       },
     ];
 
-    const father = resolveKinship(
-      "child",
-      "father",
-      people,
-      relationships,
-    );
+    const father = resolveKinship("child", "father", people, relationships);
     const grandfather = resolveKinship(
       "child",
       "grandfather",
@@ -2055,7 +2659,7 @@ describe("legacy application adapter", () => {
     expect(son.path?.steps).toEqual(["wife", "brother", "son"]);
     expect(son.title).toBe("Sekuru");
     expect(daughter.path?.steps).toEqual(["wife", "brother", "daughter"]);
-    expect(daughter.title).toBe("Mainini");
+    expect(daughter.title).toBe("Mainini / Muramu");
     expect(daughter.aliases).toContain("Muramu");
   });
 
@@ -2090,10 +2694,10 @@ describe("legacy application adapter", () => {
     ];
 
     expect(resolveKinship("ego", "older", people, relationships).title).toBe(
-      "Bamkuru",
+      "Bamkuru / Muramu",
     );
     expect(resolveKinship("ego", "younger", people, relationships).title).toBe(
-      "Bamnini",
+      "Bamnini / Muramu",
     );
   });
 
@@ -2104,10 +2708,20 @@ describe("legacy application adapter", () => {
       { id: "older", firstName: "Older", surname: "M", sex: "female" },
       { id: "younger", firstName: "Younger", surname: "M", sex: "female" },
       { id: "older-husband", firstName: "Older H", surname: "M", sex: "male" },
-      { id: "younger-husband", firstName: "Younger H", surname: "M", sex: "male" },
+      {
+        id: "younger-husband",
+        firstName: "Younger H",
+        surname: "M",
+        sex: "male",
+      },
     ];
     const relationships: Relationship[] = [
-      { id: "marriage", type: "SPOUSE_OF", personAId: "ego", personBId: "wife" },
+      {
+        id: "marriage",
+        type: "SPOUSE_OF",
+        personAId: "ego",
+        personBId: "wife",
+      },
       {
         id: "older-sibling",
         type: "SIBLING_OF",
@@ -2139,9 +2753,9 @@ describe("legacy application adapter", () => {
     const older = resolveKinship("ego", "older", people, relationships);
     const younger = resolveKinship("ego", "younger", people, relationships);
 
-    expect(older.title).toBe("Maiguru");
+    expect(older.title).toBe("Maiguru / Muramu");
     expect(older.aliases).toContain("Muramu");
-    expect(younger.title).toBe("Mainini");
+    expect(younger.title).toBe("Mainini / Muramu");
     expect(younger.aliases).toContain("Muramu");
     expect(
       resolveKinship("ego", "older-husband", people, relationships).title,
@@ -2158,7 +2772,12 @@ describe("legacy application adapter", () => {
       { id: "sister", firstName: "Sister", surname: "M", sex: "female" },
     ];
     const relationships: Relationship[] = [
-      { id: "marriage", type: "SPOUSE_OF", personAId: "ego", personBId: "husband" },
+      {
+        id: "marriage",
+        type: "SPOUSE_OF",
+        personAId: "ego",
+        personBId: "husband",
+      },
       {
         id: "siblings",
         type: "SIBLING_OF",
@@ -2181,7 +2800,12 @@ describe("legacy application adapter", () => {
       { id: "brothers-son", firstName: "Son", surname: "M", sex: "male" },
       { id: "sons-wife", firstName: "Son Wife", surname: "M", sex: "female" },
       { id: "sister", firstName: "Sister", surname: "M", sex: "female" },
-      { id: "sisters-husband", firstName: "Husband", surname: "M", sex: "male" },
+      {
+        id: "sisters-husband",
+        firstName: "Husband",
+        surname: "M",
+        sex: "male",
+      },
     ];
     const relationships: Relationship[] = [
       {
@@ -2226,13 +2850,13 @@ describe("legacy application adapter", () => {
 
     expect(
       resolveKinship("ego", "brothers-wife", people, relationships).title,
-    ).toBe("Maiguru");
+    ).toBe("Maiguru / Muramu");
     expect(
       resolveKinship("ego", "sons-wife", people, relationships).title,
-    ).toBe("Muroora");
+    ).toBe("Mwana / Muroora");
     expect(
       resolveKinship("ego", "sisters-husband", people, relationships).title,
-    ).toBe("Tsano");
+    ).toBe("Tsano / Mukwasha");
   });
 
   it("keeps the current React application API operational", () => {
@@ -2243,11 +2867,16 @@ describe("legacy application adapter", () => {
     ];
     const relationships: Relationship[] = [
       { id: "parent", type: "PARENT_OF", personAId: "ego", personBId: "son" },
-      { id: "marriage", type: "SPOUSE_OF", personAId: "son", personBId: "wife" },
+      {
+        id: "marriage",
+        type: "SPOUSE_OF",
+        personAId: "son",
+        personBId: "wife",
+      },
     ];
 
     const result = resolveKinship("ego", "wife", people, relationships);
-    expect(result.title).toBe("Muroora");
+    expect(result.title).toBe("Mwana / Muroora");
     expect(result.socialTerm).toBe("Vanyarikani");
   });
 
@@ -2259,7 +2888,12 @@ describe("legacy application adapter", () => {
       { id: "uncle-wife", firstName: "Wife", surname: "M", sex: "female" },
     ];
     const relationships: Relationship[] = [
-      { id: "parent", type: "PARENT_OF", personAId: "father", personBId: "ego" },
+      {
+        id: "parent",
+        type: "PARENT_OF",
+        personAId: "father",
+        personBId: "ego",
+      },
       {
         id: "siblings",
         type: "SIBLING_OF",

@@ -10,10 +10,22 @@ export interface Person {
   spouseIds: string[];
   /** Optional ordinal used to infer relative age without requiring dates. */
   birthOrder?: number;
+  /** Optional parsed birth date; kept distinct from the ordinal birth order. */
+  birthTimestamp?: number;
 }
 
 export type KStep = "F" | "M" | "S" | "D" | "H" | "W" | "B" | "Z";
 export type KPath = KStep[];
+
+export interface SiblingSenioritySegment {
+  /** Inclusive indexes in the raw K-path occupied by this sibling move. */
+  rawStartIndex: number;
+  rawEndIndex: number;
+  referenceId: string;
+  relativeId: string;
+  relativeAge: RelativeAge;
+  source: "explicit-sibling-edge" | "shared-parent-collapse";
+}
 
 export interface Context {
   egoId: string;
@@ -21,7 +33,8 @@ export interface Context {
   egoSex: Sex;
   targetSex: Sex;
   relativeAge: RelativeAge;
-  structuralRelativeAge: RelativeAge;
+  /** Every sibling comparison in traversal order, rather than one global age. */
+  siblingSeniorities: readonly SiblingSenioritySegment[];
   generationDistance: number;
 }
 
@@ -39,19 +52,132 @@ export interface TraversalResult {
   canonicalPath: KPath;
   /** Positive is above ego; negative is below ego. */
   generationDistance: number;
+  siblingSeniorities: SiblingSenioritySegment[];
 }
 
-export type KinshipStatus = "known" | "ambiguous" | "unmapped" | "unrelated";
+/** Seniority nearest the target is the ranking relevant to a terminal class. */
+export function terminalSiblingSeniority(context: Context): RelativeAge {
+  return context.siblingSeniorities.at(-1)?.relativeAge ?? "unknown";
+}
+
+export type KinshipStatus =
+  | "known"
+  | "ambiguous"
+  | "broad"
+  | "invalid"
+  | "unrelated";
+
+/**
+ * The primary Shona hierarchy. Titles and exceptional roles are represented
+ * separately by KinClass; these ten values describe the structural rank and
+ * lineage axis which participate in the core reciprocal algebra.
+ */
+export const CORE_KIN_CLASSES = [
+  "PATRILINEAL_GRANDPARENT",
+  "PATRILINEAL_FATHER",
+  "PATRILINEAL_SIBLING",
+  "PATRILINEAL_CHILD",
+  "PATRILINEAL_GRANDCHILD",
+  "MATRILINEAL_GRANDPARENT",
+  "MATRILINEAL_MOTHER",
+  "MATRILINEAL_SIBLING",
+  "MATRILINEAL_CHILD",
+  "MATRILINEAL_GRANDCHILD",
+] as const;
+export type CoreKinClass = (typeof CORE_KIN_CLASSES)[number];
+
+export const CORE_KIN_RECIPROCALS: Readonly<Record<CoreKinClass, CoreKinClass>> = {
+  PATRILINEAL_GRANDPARENT: "PATRILINEAL_GRANDCHILD",
+  PATRILINEAL_FATHER: "PATRILINEAL_CHILD",
+  PATRILINEAL_SIBLING: "PATRILINEAL_SIBLING",
+  PATRILINEAL_CHILD: "PATRILINEAL_FATHER",
+  PATRILINEAL_GRANDCHILD: "PATRILINEAL_GRANDPARENT",
+  MATRILINEAL_GRANDPARENT: "MATRILINEAL_GRANDCHILD",
+  MATRILINEAL_MOTHER: "MATRILINEAL_CHILD",
+  MATRILINEAL_SIBLING: "MATRILINEAL_SIBLING",
+  MATRILINEAL_CHILD: "MATRILINEAL_MOTHER",
+  MATRILINEAL_GRANDCHILD: "MATRILINEAL_GRANDPARENT",
+};
+
+/** Distinguishes homonymous terms whose algebraic behavior is different. */
+export const KIN_CLASSES = [
+  "SELF",
+  "CLASSIFICATORY_FATHER",
+  "CLASSIFICATORY_MOTHER",
+  "CLASSIFICATORY_CHILD",
+  "SAME_SEX_SIBLING",
+  "CROSS_SEX_SIBLING",
+  "GRANDFATHER",
+  "GRANDMOTHER",
+  "MUZUKURU",
+  "PATERNAL_AUNT",
+  "HUSBAND",
+  "WIFE",
+  "MOTHER_IN_LAW",
+  "WIFE_RECEIVER_MALE_PEER",
+  "WIFE_GIVING_MALE_PEER",
+  "WIFES_BROTHERS_WIFE",
+] as const;
+export type KinClass = (typeof KIN_CLASSES)[number];
+export type KinshipSpecificity =
+  | "exact"
+  | "classificatory"
+  | "alliance-side"
+  | "broad";
 export type AffinalSocialTerm =
   | "Vanyarikani"
   | "Vasekedzani"
   | "Vakaroorana";
+
+export type RuleConfidence = "attested" | "derived" | "extrapolated";
+export type SexCondition = "ego-conditioned" | "sex-invariant" | "undetermined";
+
+export interface RuleProvenance {
+  sources: string[];
+  confidence: RuleConfidence;
+  sexCondition?: SexCondition;
+  scope?: string;
+}
+
+export type GraphValidationSeverity = "error" | "warning";
+
+export interface GraphValidationIssue {
+  code:
+    | "DUPLICATE_PERSON_ID"
+    | "DANGLING_PARENT"
+    | "DANGLING_SPOUSE"
+    | "DANGLING_SIBLING"
+    | "SELF_PARENT"
+    | "SELF_SPOUSE"
+    | "SELF_SIBLING"
+    | "PARENT_CYCLE"
+    | "PARENT_SEX_MISMATCH"
+    | "CONTRADICTORY_SENIORITY";
+  severity: GraphValidationSeverity;
+  message: string;
+  personIds: string[];
+}
+
+export interface GraphValidationReport {
+  valid: boolean;
+  issues: GraphValidationIssue[];
+}
 
 export interface KinshipResolution {
   status: KinshipStatus;
   title: string;
   description: string;
   ruleId?: string;
+  /** Cultural specificity, separate from certainty/status. */
+  specificity?: KinshipSpecificity;
+  /** Semantic class used by algebra when the spoken title is not unique. */
+  kinClass?: KinClass;
+  /** One or more positions in the primary patrilineal/matrilineal hierarchy. */
+  coreClassifications?: CoreKinClass[];
+  /** Seniority carried by a ranked semantic relationship. */
+  seniority?: RelativeAge;
+  provenance?: RuleProvenance;
+  validationIssues?: GraphValidationIssue[];
   /** Alternative reference or address forms for the principal title. */
   aliases?: string[];
   /** Social protocol carried by an affinal relationship. */
@@ -73,6 +199,7 @@ export interface KinRule {
   id: string;
   axis: "P" | "M" | "A" | "contextual";
   priority: number;
+  provenance?: RuleProvenance;
   matches(path: readonly KStep[], context: Context): boolean;
   reduce?: (path: readonly KStep[], context: Context) => KPath;
   resolve?: (

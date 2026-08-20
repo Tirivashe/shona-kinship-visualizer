@@ -1,8 +1,11 @@
 import type {
+  GraphValidationIssue,
+  GraphValidationReport,
   KPath,
   KStep,
   Person,
   RelativeAge,
+  SiblingSenioritySegment,
   TraversalResult,
 } from "./model";
 
@@ -23,6 +26,233 @@ export interface SupplementalParent {
   childId: string;
 }
 
+function firstDirectedCycle(
+  ids: readonly string[],
+  adjacency: ReadonlyMap<string, ReadonlySet<string>>,
+): string[] | undefined {
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const stack: string[] = [];
+
+  const visit = (id: string): string[] | undefined => {
+    if (visiting.has(id)) {
+      const start = stack.indexOf(id);
+      return [...stack.slice(start), id];
+    }
+    if (visited.has(id)) return undefined;
+
+    visiting.add(id);
+    stack.push(id);
+    for (const next of adjacency.get(id) ?? []) {
+      const cycle = visit(next);
+      if (cycle) return cycle;
+    }
+    stack.pop();
+    visiting.delete(id);
+    visited.add(id);
+    return undefined;
+  };
+
+  for (const id of ids) {
+    const cycle = visit(id);
+    if (cycle) return cycle;
+  }
+  return undefined;
+}
+
+/** Validate source records before they are normalized into graph edges. */
+export function validateFamilyGraphInput(
+  people: readonly Person[],
+  supplementalSiblings: readonly SupplementalSibling[] = [],
+  supplementalParents: readonly SupplementalParent[] = [],
+): GraphValidationReport {
+  const issues: GraphValidationIssue[] = [];
+  const counts = new Map<string, number>();
+  for (const person of people) {
+    counts.set(person.id, (counts.get(person.id) ?? 0) + 1);
+  }
+  for (const [id, count] of counts) {
+    if (count > 1) {
+      issues.push({
+        code: "DUPLICATE_PERSON_ID",
+        severity: "error",
+        message: `Person ID ${id} occurs ${count} times.`,
+        personIds: [id],
+      });
+    }
+  }
+
+  const peopleById = new Map(people.map((person) => [person.id, person]));
+  const parentLinks: SupplementalParent[] = [
+    ...people.flatMap((person) => [
+      ...(person.fatherId
+        ? [{ parentId: person.fatherId, childId: person.id }]
+        : []),
+      ...(person.motherId
+        ? [{ parentId: person.motherId, childId: person.id }]
+        : []),
+    ]),
+    ...supplementalParents,
+  ];
+
+  for (const person of people) {
+    for (const [field, parentId, expectedSex] of [
+      ["fatherId", person.fatherId, "M"],
+      ["motherId", person.motherId, "F"],
+    ] as const) {
+      if (!parentId) continue;
+      const parent = peopleById.get(parentId);
+      if (!parent) {
+        issues.push({
+          code: "DANGLING_PARENT",
+          severity: "error",
+          message: `${person.id}.${field} references missing person ${parentId}.`,
+          personIds: [person.id, parentId],
+        });
+      } else if (parent.sex !== expectedSex) {
+        issues.push({
+          code: "PARENT_SEX_MISMATCH",
+          severity: "error",
+          message: `${person.id}.${field} references a person whose sex is ${parent.sex}.`,
+          personIds: [person.id, parentId],
+        });
+      }
+    }
+
+    for (const spouseId of person.spouseIds) {
+      if (spouseId === person.id) {
+        issues.push({
+          code: "SELF_SPOUSE",
+          severity: "error",
+          message: `${person.id} cannot be their own spouse.`,
+          personIds: [person.id],
+        });
+      } else if (!peopleById.has(spouseId)) {
+        issues.push({
+          code: "DANGLING_SPOUSE",
+          severity: "error",
+          message: `${person.id} references missing spouse ${spouseId}.`,
+          personIds: [person.id, spouseId],
+        });
+      }
+    }
+  }
+
+  for (const link of supplementalParents) {
+    if (link.parentId === link.childId) {
+      issues.push({
+        code: "SELF_PARENT",
+        severity: "error",
+        message: `${link.parentId} cannot be their own parent.`,
+        personIds: [link.parentId],
+      });
+    }
+    for (const id of [link.parentId, link.childId]) {
+      if (!peopleById.has(id)) {
+        issues.push({
+          code: "DANGLING_PARENT",
+          severity: "error",
+          message: `Parent link ${link.parentId} -> ${link.childId} references missing person ${id}.`,
+          personIds: [link.parentId, link.childId],
+        });
+      }
+    }
+  }
+
+  const seniorityEdges = new Map<string, Set<string>>();
+  for (const sibling of supplementalSiblings) {
+    if (sibling.personAId === sibling.personBId) {
+      issues.push({
+        code: "SELF_SIBLING",
+        severity: "error",
+        message: `${sibling.personAId} cannot be their own sibling.`,
+        personIds: [sibling.personAId],
+      });
+      continue;
+    }
+    const missing = [sibling.personAId, sibling.personBId].filter(
+      (id) => !peopleById.has(id),
+    );
+    if (missing.length > 0) {
+      issues.push({
+        code: "DANGLING_SIBLING",
+        severity: "error",
+        message: `Sibling link ${sibling.personAId} <-> ${sibling.personBId} references missing people.`,
+        personIds: [sibling.personAId, sibling.personBId],
+      });
+      continue;
+    }
+
+    const relativeAge = sibling.personBRelativeAge ?? "unknown";
+    if (relativeAge === "unknown" || relativeAge === "same") continue;
+    const olderId =
+      relativeAge === "older" ? sibling.personBId : sibling.personAId;
+    const youngerId =
+      relativeAge === "older" ? sibling.personAId : sibling.personBId;
+    const younger = seniorityEdges.get(olderId) ?? new Set<string>();
+    younger.add(youngerId);
+    seniorityEdges.set(olderId, younger);
+  }
+
+  const seniorityCycle = firstDirectedCycle(
+    [...peopleById.keys()],
+    seniorityEdges,
+  );
+  if (seniorityCycle) {
+    issues.push({
+      code: "CONTRADICTORY_SENIORITY",
+      severity: "error",
+      message: `Sibling seniority contains a cycle: ${seniorityCycle.join(" > ")}.`,
+      personIds: seniorityCycle,
+    });
+  }
+
+  const parentEdges = new Map<string, Set<string>>();
+  for (const { parentId, childId } of parentLinks) {
+    if (parentId === childId) {
+      issues.push({
+        code: "SELF_PARENT",
+        severity: "error",
+        message: `${parentId} cannot be their own parent.`,
+        personIds: [parentId],
+      });
+      continue;
+    }
+    if (!peopleById.has(parentId) || !peopleById.has(childId)) continue;
+    const parents = parentEdges.get(childId) ?? new Set<string>();
+    parents.add(parentId);
+    parentEdges.set(childId, parents);
+
+    for (const spouseId of peopleById.get(parentId)?.spouseIds ?? []) {
+      if (spouseId === childId) {
+        issues.push({
+          code: "SELF_PARENT",
+          severity: "error",
+          message: `Spouse-derived parenthood would make ${childId} their own parent.`,
+          personIds: [childId, parentId],
+        });
+      } else if (peopleById.has(spouseId)) {
+        parents.add(spouseId);
+      }
+    }
+  }
+
+  const parentCycle = firstDirectedCycle([...peopleById.keys()], parentEdges);
+  if (parentCycle) {
+    issues.push({
+      code: "PARENT_CYCLE",
+      severity: "error",
+      message: `Parent relationships contain a cycle: ${parentCycle.join(" -> ")}.`,
+      personIds: parentCycle,
+    });
+  }
+
+  return {
+    valid: !issues.some((issue) => issue.severity === "error"),
+    issues,
+  };
+}
+
 /**
  * Genealogical graph with a bounded BFS over parent, child, and spouse edges.
  * Supplemental sibling links exist only for adapting older project data; a
@@ -33,12 +263,18 @@ export class FamilyTreeGraph {
   private readonly adjacency = new Map<string, GraphEdge[]>();
   private readonly olderThan = new Map<string, Set<string>>();
   private readonly parentsByChild = new Map<string, Set<string>>();
+  private readonly validationReport: GraphValidationReport;
 
   constructor(
     people: readonly Person[],
     supplementalSiblings: readonly SupplementalSibling[] = [],
     supplementalParents: readonly SupplementalParent[] = [],
   ) {
+    this.validationReport = validateFamilyGraphInput(
+      people,
+      supplementalSiblings,
+      supplementalParents,
+    );
     this.peopleById = new Map(people.map((person) => [person.id, person]));
 
     for (const person of people) {
@@ -104,10 +340,29 @@ export class FamilyTreeGraph {
 
     const siblingComponents = this.addSiblingComponentEdges(siblingNeighbors);
     this.propagateParentsAcrossSiblingComponents(siblingComponents);
+
+    // BFS must not depend on the order in which source records were supplied.
+    for (const edges of this.adjacency.values()) {
+      edges.sort((left, right) =>
+        left.step === right.step
+          ? left.to.localeCompare(right.to)
+          : left.step.localeCompare(right.step),
+      );
+    }
   }
 
   getPerson(id: string): Person | undefined {
     return this.peopleById.get(id);
+  }
+
+  getValidationReport(): GraphValidationReport {
+    return {
+      valid: this.validationReport.valid,
+      issues: this.validationReport.issues.map((issue) => ({
+        ...issue,
+        personIds: [...issue.personIds],
+      })),
+    };
   }
 
   /**
@@ -132,12 +387,22 @@ export class FamilyTreeGraph {
 
     const reference = this.peopleById.get(referenceId);
     const target = this.peopleById.get(targetId);
-    if (reference?.birthOrder === undefined || target?.birthOrder === undefined) {
-      return "unknown";
+    if (reference?.birthOrder !== undefined && target?.birthOrder !== undefined) {
+      if (target.birthOrder < reference.birthOrder) return "older";
+      if (target.birthOrder > reference.birthOrder) return "younger";
+      return "same";
     }
-    if (target.birthOrder < reference.birthOrder) return "older";
-    if (target.birthOrder > reference.birthOrder) return "younger";
-    return "same";
+
+    if (
+      reference?.birthTimestamp !== undefined &&
+      target?.birthTimestamp !== undefined
+    ) {
+      if (target.birthTimestamp < reference.birthTimestamp) return "older";
+      if (target.birthTimestamp > reference.birthTimestamp) return "younger";
+      return "same";
+    }
+
+    return "unknown";
   }
 
   findShortestPath(egoId: string, targetId: string): TraversalResult | null {
@@ -157,6 +422,7 @@ export class FamilyTreeGraph {
           rawPath: [],
           canonicalPath: [],
           generationDistance: 0,
+          siblingSeniorities: [],
         },
       ];
     }
@@ -193,6 +459,10 @@ export class FamilyTreeGraph {
               rawPath,
               canonicalPath: FamilyTreeGraph.canonicalize(rawPath),
               generationDistance: FamilyTreeGraph.generationDistance(rawPath),
+              siblingSeniorities: this.describeSiblingSeniorities(
+                personIds,
+                rawPath,
+              ),
             });
           }
           continue;
@@ -211,6 +481,59 @@ export class FamilyTreeGraph {
       ]),
     );
     return [...unique.values()];
+  }
+
+  /**
+   * Preserve every sibling comparison represented by a raw traversal. This is
+   * deliberately calculated before canonicalization so a long path can rank
+   * the correct local sibling pair instead of reusing the first comparison.
+   */
+  describeSiblingSeniorities(
+    personIds: readonly string[],
+    rawPath: readonly KStep[],
+  ): SiblingSenioritySegment[] {
+    const segments: SiblingSenioritySegment[] = [];
+
+    for (let index = 0; index < rawPath.length; index += 1) {
+      const step = rawPath[index];
+      if (step === "B" || step === "Z") {
+        const referenceId = personIds[index];
+        const relativeId = personIds[index + 1];
+        if (referenceId && relativeId) {
+          segments.push({
+            rawStartIndex: index,
+            rawEndIndex: index,
+            referenceId,
+            relativeId,
+            relativeAge: this.relativeAge(referenceId, relativeId),
+            source: "explicit-sibling-edge",
+          });
+        }
+        continue;
+      }
+
+      const next = rawPath[index + 1];
+      if (
+        (step === "F" || step === "M") &&
+        (next === "S" || next === "D")
+      ) {
+        const referenceId = personIds[index];
+        const relativeId = personIds[index + 2];
+        if (referenceId && relativeId) {
+          segments.push({
+            rawStartIndex: index,
+            rawEndIndex: index + 1,
+            referenceId,
+            relativeId,
+            relativeAge: this.relativeAge(referenceId, relativeId),
+            source: "shared-parent-collapse",
+          });
+        }
+        index += 1;
+      }
+    }
+
+    return segments;
   }
 
   /** Collapse a parent's other child into anthropological B/Z notation. */
@@ -244,11 +567,11 @@ export class FamilyTreeGraph {
     for (const spouseId of person.spouseIds) {
       const spouse = this.peopleById.get(spouseId);
       if (!spouse) continue;
-      this.addEdge(
-        person.id,
-        spouse.id,
-        spouse.sex === "M" ? "H" : "W",
-      );
+      this.addEdge(person.id, spouse.id, spouse.sex === "M" ? "H" : "W");
+      // Marriage is intrinsically reciprocal. A single declaration must be
+      // sufficient for BFS in either direction, including graph-native data
+      // which has not passed through the application's relationship adapter.
+      this.addEdge(spouse.id, person.id, person.sex === "M" ? "H" : "W");
     }
   }
 
