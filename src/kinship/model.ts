@@ -27,6 +27,15 @@ export interface SiblingSenioritySegment {
   source: "explicit-sibling-edge" | "shared-parent-collapse";
 }
 
+/** A canonical K-step aligned to the raw graph edges and endpoint people. */
+export interface CanonicalTraversalSegment {
+  step: KStep;
+  rawStartIndex: number;
+  rawEndIndex: number;
+  fromPersonId: string;
+  toPersonId: string;
+}
+
 export interface Context {
   egoId: string;
   targetId: string;
@@ -50,9 +59,17 @@ export interface TraversalResult {
   personIds: string[];
   rawPath: KPath;
   canonicalPath: KPath;
+  /** Canonical steps with enough provenance for progressive reduction. */
+  canonicalSegments?: CanonicalTraversalSegment[];
   /** Positive is above ego; negative is below ego. */
   generationDistance: number;
   siblingSeniorities: SiblingSenioritySegment[];
+  /**
+   * Query-local classifications accumulated for the semantic nodes visited
+   * from Ego to this target. These are never intrinsic Person properties: the
+   * same person occupies different classes for different Egos.
+   */
+  nodeClassifications?: EgoRelativeNodeClassification[];
 }
 
 /** Seniority nearest the target is the ranking relevant to a terminal class. */
@@ -119,6 +136,62 @@ export const KIN_CLASSES = [
   "WIFES_BROTHERS_WIFE",
 ] as const;
 export type KinClass = (typeof KIN_CLASSES)[number];
+
+export type ProgressiveLineageAxis =
+  | "PATRILINEAL"
+  | "MATRILINEAL"
+  | "AFFINAL"
+  | "UNDETERMINED";
+
+export type ProgressiveKinshipBranch =
+  | "DIRECT"
+  | "PARALLEL"
+  | "COLLATERAL"
+  | "MATRILATERAL_UNCLE_LINE";
+
+/**
+ * Semantic accumulator used while a traversal is reduced from left to right.
+ * The displayed title is never used as an algebra key: homonymous titles can
+ * occupy different classes, axes, and collateral branches.
+ */
+export interface ProgressiveKinshipState {
+  title: string;
+  kinClass: KinClass;
+  coreClassifications: CoreKinClass[];
+  egoSex: Sex;
+  targetSex: Sex;
+  axis: ProgressiveLineageAxis;
+  branch: ProgressiveKinshipBranch;
+  establishedBy: string;
+  seniority: RelativeAge;
+  derivation: string[];
+}
+
+/** The class assigned to one visited person from one specific Ego's view. */
+export interface EgoRelativeNodeClassification {
+  egoId: string;
+  personId: string;
+  canonicalPath: KPath;
+  status: KinshipStatus;
+  title: string;
+  kinClass?: KinClass;
+  coreClassifications: CoreKinClass[];
+  seniority: RelativeAge;
+  establishedBy: string;
+}
+
+/** One graph edge supplied to the progressive semantic algebra. */
+export interface ProgressiveTransitionSegment {
+  step: KStep;
+  fromPersonId: string;
+  toPersonId: string;
+  targetSex: Sex;
+  /** Age of the new node relative to the original Ego, not the prior node. */
+  egoRelativeAge: RelativeAge;
+  /** Age of the new node relative to the immediately preceding graph node. */
+  relativeAge: RelativeAge;
+}
+
 export type KinshipSpecificity =
   | "exact"
   | "classificatory"
@@ -187,6 +260,8 @@ export interface KinshipResolution {
   traversal?: TraversalResult;
   reducedPath?: KPath;
   derivation?: string[];
+  /** Internal semantic state retained so a later edge continues this prefix. */
+  progressiveState?: ProgressiveKinshipState;
 }
 
 export interface ReductionResult {

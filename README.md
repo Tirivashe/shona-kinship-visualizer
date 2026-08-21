@@ -1,36 +1,73 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Shona Family
 
-## Getting Started
+A Next.js application for building a family graph and resolving Shona
+kinship dynamically from an Ego's perspective.
 
-First, run the development server:
+## Local development
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+Requirements:
+
+- Docker Desktop
+- Node.js and pnpm
+- The local `postgres:alpine` image
+
+Copy the development environment template if `.env` does not already exist:
+
+```powershell
+Copy-Item .env.example .env
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The default local credentials are development-only. Change them before using
+the database outside your own machine.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Start PostgreSQL and wait for it to become healthy:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```powershell
+docker compose up -d postgres
+docker compose ps
+```
 
-## Learn More
+Install dependencies, apply committed database migrations, and start Next.js:
 
-To learn more about Next.js, take a look at the following resources:
+```powershell
+pnpm install
+pnpm db:migrate
+pnpm dev
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Open [http://localhost:3000](http://localhost:3000). The database health check
+is available at
+[http://localhost:3000/api/health/database](http://localhost:3000/api/health/database).
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The `postgres:alpine` tag is intentionally used by `compose.yaml` as required
+for this local environment. It is a moving tag; the image currently installed
+on the development machine is PostgreSQL 18.6. The named volume is mounted at
+`/var/lib/postgresql`, which matches PostgreSQL 18's image layout.
 
-## Deploy on Vercel
+## Database workflow
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The Drizzle schema is in `src/db/schema.ts`. After changing it, generate and
+apply a migration:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```powershell
+pnpm db:generate
+pnpm db:migrate
+```
+
+To inspect the database from the container:
+
+```powershell
+docker compose exec postgres psql -U shona_app -d shona_family
+```
+
+`docker compose down` stops the services without deleting family data. Do not
+use `docker compose down -v` unless you deliberately want to erase the named
+database volume.
+
+## Validation
+
+```powershell
+pnpm test
+pnpm lint
+pnpm build
+```

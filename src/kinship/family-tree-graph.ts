@@ -1,4 +1,5 @@
 import type {
+  CanonicalTraversalSegment,
   GraphValidationIssue,
   GraphValidationReport,
   KPath,
@@ -421,6 +422,7 @@ export class FamilyTreeGraph {
           personIds: [egoId],
           rawPath: [],
           canonicalPath: [],
+          canonicalSegments: [],
           generationDistance: 0,
           siblingSeniorities: [],
         },
@@ -458,6 +460,10 @@ export class FamilyTreeGraph {
               personIds,
               rawPath,
               canonicalPath: FamilyTreeGraph.canonicalize(rawPath),
+              canonicalSegments: this.describeCanonicalSegments(
+                personIds,
+                rawPath,
+              ),
               generationDistance: FamilyTreeGraph.generationDistance(rawPath),
               siblingSeniorities: this.describeSiblingSeniorities(
                 personIds,
@@ -531,6 +537,45 @@ export class FamilyTreeGraph {
         }
         index += 1;
       }
+    }
+
+    return segments;
+  }
+
+  /**
+   * Align canonical B/Z collapses with their raw F|M + S|D graph spans.
+   * Progressive algebra can therefore advance from one actual relative to
+   * the next without treating the shared parent as a semantic prefix target.
+   */
+  describeCanonicalSegments(
+    personIds: readonly string[],
+    rawPath: readonly KStep[],
+  ): CanonicalTraversalSegment[] {
+    const segments: CanonicalTraversalSegment[] = [];
+
+    for (let index = 0; index < rawPath.length; index += 1) {
+      const current = rawPath[index];
+      const next = rawPath[index + 1];
+      const collapsesToSibling =
+        (current === "F" || current === "M") &&
+        (next === "S" || next === "D");
+      const rawEndIndex = collapsesToSibling ? index + 1 : index;
+      const fromPersonId = personIds[index];
+      const toPersonId = personIds[rawEndIndex + 1];
+      if (!fromPersonId || !toPersonId) continue;
+
+      segments.push({
+        step: collapsesToSibling
+          ? next === "S"
+            ? "B"
+            : "Z"
+          : current,
+        rawStartIndex: index,
+        rawEndIndex,
+        fromPersonId,
+        toPersonId,
+      });
+      if (collapsesToSibling) index += 1;
     }
 
     return segments;

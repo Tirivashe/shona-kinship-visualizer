@@ -15,7 +15,10 @@ import type {
   NewCharacterConnection,
   NewCharacterInput,
 } from "@/data/in-memory-family-database";
+import { errorMessage } from "@/lib/error-message";
 import type { Person, PersonSex } from "@/types/family";
+
+import { ErrorNotificationToast } from "./ErrorNotificationToast";
 
 interface ConnectionRow {
   rowId: number;
@@ -30,7 +33,7 @@ interface CharacterDialogProps {
   people: readonly Person[];
   character?: Person;
   initialConnections?: readonly NewCharacterConnection[];
-  onSave: (input: NewCharacterInput) => void;
+  onSave: (input: NewCharacterInput) => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -81,7 +84,9 @@ export function CharacterDialog({
     character?.photoUrl ? "Current profile image" : "",
   );
   const [readingPhoto, setReadingPhoto] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
+  const busy = readingPhoto || saving;
   const [connections, setConnections] = useState<ConnectionRow[]>(() => {
     if (initialConnections.length > 0) {
       return initialConnections.map((connection, index) => ({
@@ -158,17 +163,13 @@ export function CharacterDialog({
       setPhotoName(file.name);
     } catch (cause) {
       input.value = "";
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "The selected image could not be read.",
-      );
+      setError(errorMessage(cause, "The selected image could not be read."));
     } finally {
       setReadingPhoto(false);
     }
   }
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(undefined);
 
@@ -192,7 +193,8 @@ export function CharacterDialog({
     }
 
     try {
-      onSave({
+      setSaving(true);
+      await onSave({
         firstName: String(form.get("firstName") ?? ""),
         surname: String(form.get("surname") ?? ""),
         sex: String(form.get("sex") ?? "") as PersonSex,
@@ -206,11 +208,9 @@ export function CharacterDialog({
         connections: validConnections,
       });
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "The character could not be saved.",
-      );
+      setError(errorMessage(cause, "The character could not be saved."));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -219,7 +219,13 @@ export function CharacterDialog({
       ref={dialogRef}
       aria-labelledby="character-dialog-title"
       className="m-auto max-h-[calc(100vh-2rem)] w-[min(760px,calc(100vw-2rem))] overflow-hidden rounded-2xl bg-white p-0 shadow-2xl backdrop:bg-slate-950/50"
-      onCancel={onClose}
+      onCancel={(event) => {
+        if (busy) {
+          event.preventDefault();
+          return;
+        }
+        onClose();
+      }}
       onClose={onClose}
     >
       <form
@@ -244,7 +250,8 @@ export function CharacterDialog({
           <button
             type="button"
             aria-label="Close character dialog"
-            className="rounded-full p-2 text-xl leading-none text-slate-500 hover:bg-slate-100 hover:text-slate-950"
+            disabled={busy}
+            className="rounded-full p-2 text-xl leading-none text-slate-500 hover:bg-slate-100 hover:text-slate-950 disabled:cursor-wait disabled:opacity-50"
             onClick={() => dialogRef.current?.close()}
           >
             ×
@@ -335,14 +342,25 @@ export function CharacterDialog({
 
                 <div>
                   <div className="flex flex-wrap gap-2">
-                    <label className="cursor-pointer rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                      {photoUrl ? "Replace image" : "Choose image"}
+                    <label
+                      aria-disabled={busy}
+                      className={`rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 ${
+                        busy
+                          ? "cursor-wait opacity-60"
+                          : "cursor-pointer hover:bg-slate-50"
+                      }`}
+                    >
+                      {readingPhoto
+                        ? "Loading image…"
+                        : photoUrl
+                          ? "Replace image"
+                          : "Choose image"}
                       <input
                         ref={photoInputRef}
                         type="file"
                         accept="image/*"
                         aria-label="Choose profile image"
-                        disabled={readingPhoto}
+                        disabled={busy}
                         onChange={selectPhoto}
                         className="sr-only"
                       />
@@ -350,6 +368,7 @@ export function CharacterDialog({
                     {photoUrl && (
                       <button
                         type="button"
+                        disabled={busy}
                         onClick={() => {
                           setPhotoUrl("");
                           setPhotoName("");
@@ -357,7 +376,7 @@ export function CharacterDialog({
                             photoInputRef.current.value = "";
                           }
                         }}
-                        className="rounded-lg px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50"
+                        className="rounded-lg px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 disabled:cursor-wait disabled:opacity-50"
                       >
                         Remove image
                       </button>
@@ -585,33 +604,38 @@ export function CharacterDialog({
             )}
           </section>
 
-          {error && (
-            <p
-              role="alert"
-              className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700"
-            >
-              {error}
-            </p>
-          )}
         </div>
 
         <footer className="flex justify-end gap-3 border-t border-slate-200 bg-white px-6 py-4">
           <button
             type="button"
+            disabled={busy}
             onClick={() => dialogRef.current?.close()}
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
           >
             Cancel
           </button>
           <button
             type="submit"
-            disabled={readingPhoto}
+            disabled={busy}
             className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-wait disabled:bg-slate-400"
           >
-            {isEditing ? "Save changes" : "Add to family tree"}
+            {saving
+              ? isEditing
+                ? "Saving changes…"
+                : "Adding…"
+              : isEditing
+                ? "Save changes"
+                : "Add to family tree"}
           </button>
         </footer>
       </form>
+      {error && (
+        <ErrorNotificationToast
+          message={error}
+          onDismiss={() => setError(undefined)}
+        />
+      )}
     </dialog>
   );
 }

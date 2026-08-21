@@ -38,6 +38,16 @@ export interface FamilySnapshot {
   revision: number;
 }
 
+export class FamilyDataError extends Error {
+  constructor(
+    message: string,
+    readonly code: "INVALID_INPUT" | "NOT_FOUND" = "INVALID_INPUT",
+  ) {
+    super(message);
+    this.name = "FamilyDataError";
+  }
+}
+
 const INITIAL_PEOPLE: readonly Person[] = [
   // { id: "tiri", firstName: "Tiri", surname: "Shamhu", sex: "male" },
   // { id: "taku", firstName: "Taku", surname: "Shamhu", sex: "male" },
@@ -219,6 +229,65 @@ function slugify(value: string) {
   );
 }
 
+export function connectionsForPerson(
+  people: readonly Person[],
+  relationships: readonly Relationship[],
+  personId: string,
+): NewCharacterConnection[] {
+  if (!people.some((person) => person.id === personId)) {
+    throw new FamilyDataError(
+      "The selected character no longer exists.",
+      "NOT_FOUND",
+    );
+  }
+
+  const connections: NewCharacterConnection[] = [];
+
+  for (const relationship of relationships) {
+    const isPersonA = relationship.personAId === personId;
+    const isPersonB = relationship.personBId === personId;
+    if (!isPersonA && !isPersonB) continue;
+
+    const otherPersonId = isPersonA
+      ? relationship.personBId
+      : relationship.personAId;
+
+    if (relationship.type === "PARENT_OF") {
+      connections.push({
+        kind: isPersonA ? "child" : "parent",
+        personId: otherPersonId,
+        biological: relationship.biological === true,
+      });
+      continue;
+    }
+
+    if (relationship.type === "SPOUSE_OF") {
+      connections.push({
+        kind: "spouse",
+        personId: otherPersonId,
+        married: relationship.married === true,
+      });
+      continue;
+    }
+
+    let seniority: CharacterSiblingSeniority = "unknown";
+    if (relationship.seniority !== "UNKNOWN") {
+      const personIsOlder =
+        (isPersonA && relationship.seniority === "A_OLDER") ||
+        (isPersonB && relationship.seniority === "B_OLDER");
+      seniority = personIsOlder ? "new_older" : "existing_older";
+    }
+
+    connections.push({
+      kind: "sibling",
+      personId: otherPersonId,
+      seniority,
+    });
+  }
+
+  return connections;
+}
+
 export class InMemoryFamilyDatabase {
   private readonly people = new Map<string, Person>();
   private readonly relationships = new Map<string, Relationship>();
@@ -247,55 +316,11 @@ export class InMemoryFamilyDatabase {
   }
 
   connectionsFor(personId: string): NewCharacterConnection[] {
-    if (!this.people.has(personId)) {
-      throw new Error("The selected character no longer exists.");
-    }
-
-    const connections: NewCharacterConnection[] = [];
-
-    for (const relationship of this.relationships.values()) {
-      const isPersonA = relationship.personAId === personId;
-      const isPersonB = relationship.personBId === personId;
-      if (!isPersonA && !isPersonB) continue;
-
-      const otherPersonId = isPersonA
-        ? relationship.personBId
-        : relationship.personAId;
-
-      if (relationship.type === "PARENT_OF") {
-        connections.push({
-          kind: isPersonA ? "child" : "parent",
-          personId: otherPersonId,
-          biological: relationship.biological === true,
-        });
-        continue;
-      }
-
-      if (relationship.type === "SPOUSE_OF") {
-        connections.push({
-          kind: "spouse",
-          personId: otherPersonId,
-          married: relationship.married === true,
-        });
-        continue;
-      }
-
-      let seniority: CharacterSiblingSeniority = "unknown";
-      if (relationship.seniority !== "UNKNOWN") {
-        const personIsOlder =
-          (isPersonA && relationship.seniority === "A_OLDER") ||
-          (isPersonB && relationship.seniority === "B_OLDER");
-        seniority = personIsOlder ? "new_older" : "existing_older";
-      }
-
-      connections.push({
-        kind: "sibling",
-        personId: otherPersonId,
-        seniority,
-      });
-    }
-
-    return connections;
+    return connectionsForPerson(
+      [...this.people.values()],
+      [...this.relationships.values()],
+      personId,
+    );
   }
 
   addCharacter(input: NewCharacterInput): Person {
@@ -325,7 +350,10 @@ export class InMemoryFamilyDatabase {
   updateCharacter(personId: string, input: NewCharacterInput): Person {
     const existingPerson = this.people.get(personId);
     if (!existingPerson) {
-      throw new Error("The selected character no longer exists.");
+      throw new FamilyDataError(
+        "The selected character no longer exists.",
+        "NOT_FOUND",
+      );
     }
 
     const personDetails = this.validateCharacterInput(
@@ -367,7 +395,10 @@ export class InMemoryFamilyDatabase {
   deleteCharacter(personId: string): Person {
     const person = this.people.get(personId);
     if (!person) {
-      throw new Error("The selected character no longer exists.");
+      throw new FamilyDataError(
+        "The selected character no longer exists.",
+        "NOT_FOUND",
+      );
     }
 
     this.people.delete(personId);
@@ -393,10 +424,12 @@ export class InMemoryFamilyDatabase {
     const firstName = input.firstName.trim();
     const surname = input.surname.trim();
     if (!firstName || !surname) {
-      throw new Error("First name and surname are required.");
+      throw new FamilyDataError("First name and surname are required.");
     }
     if (input.sex !== "male" && input.sex !== "female") {
-      throw new Error("Sex must be male or female for kinship calculation.");
+      throw new FamilyDataError(
+        "Sex must be male or female for kinship calculation.",
+      );
     }
 
     const dateOfBirth = optionalValue(input.dateOfBirth);
@@ -406,23 +439,34 @@ export class InMemoryFamilyDatabase {
       dateOfDeath &&
       Date.parse(dateOfDeath) < Date.parse(dateOfBirth)
     ) {
-      throw new Error("Date of death cannot be earlier than date of birth.");
+      throw new FamilyDataError(
+        "Date of death cannot be earlier than date of birth.",
+      );
     }
 
     if (connectionRequired && input.connections.length === 0) {
-      throw new Error("Connect this character to at least one family member.");
+      throw new FamilyDataError(
+        "Connect this character to at least one family member.",
+      );
     }
 
     const connectedPeople = new Set<string>();
     for (const connection of input.connections) {
       if (connection.personId === personId) {
-        throw new Error("A character cannot be connected to themselves.");
+        throw new FamilyDataError(
+          "A character cannot be connected to themselves.",
+        );
       }
       if (!this.people.has(connection.personId)) {
-        throw new Error("One of the selected family members no longer exists.");
+        throw new FamilyDataError(
+          "One of the selected family members no longer exists.",
+          "NOT_FOUND",
+        );
       }
       if (connectedPeople.has(connection.personId)) {
-        throw new Error("Each existing member can only be connected once.");
+        throw new FamilyDataError(
+          "Each existing member can only be connected once.",
+        );
       }
       connectedPeople.add(connection.personId);
     }
@@ -465,7 +509,10 @@ export class InMemoryFamilyDatabase {
   ): Relationship {
     const existing = this.people.get(connection.personId);
     if (!existing)
-      throw new Error("The selected family member no longer exists.");
+      throw new FamilyDataError(
+        "The selected family member no longer exists.",
+        "NOT_FOUND",
+      );
 
     if (connection.kind === "parent") {
       return {
@@ -533,7 +580,7 @@ export class InMemoryFamilyDatabase {
       parents.add(relationship.personAId);
       biologicalParentsByChild.set(relationship.personBId, parents);
       if (parents.size > 2) {
-        throw new Error(
+        throw new FamilyDataError(
           "A child can have at most two recorded biological parents.",
         );
       }

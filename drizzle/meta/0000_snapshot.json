@@ -1,0 +1,309 @@
+{
+  "id": "d461eae1-ea6e-472b-9958-cb67fec1d861",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.family_state": {
+      "name": "family_state",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.people": {
+      "name": "people",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "first_name": {
+          "name": "first_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "surname": {
+          "name": "surname",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sex": {
+          "name": "sex",
+          "type": "person_sex",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "date_of_birth": {
+          "name": "date_of_birth",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "date_of_death": {
+          "name": "date_of_death",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deceased": {
+          "name": "deceased",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "bio": {
+          "name": "bio",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "photo_url": {
+          "name": "photo_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.relationships": {
+      "name": "relationships",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "relationship_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "person_a_id": {
+          "name": "person_a_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "person_b_id": {
+          "name": "person_b_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "biological": {
+          "name": "biological",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "biological_union_id": {
+          "name": "biological_union_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "married": {
+          "name": "married",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "seniority": {
+          "name": "seniority",
+          "type": "sibling_seniority",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'UNKNOWN'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "relationships_person_a_idx": {
+          "name": "relationships_person_a_idx",
+          "columns": [
+            {
+              "expression": "person_a_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "relationships_person_b_idx": {
+          "name": "relationships_person_b_idx",
+          "columns": [
+            {
+              "expression": "person_b_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "relationships_person_a_id_people_id_fk": {
+          "name": "relationships_person_a_id_people_id_fk",
+          "tableFrom": "relationships",
+          "tableTo": "people",
+          "columnsFrom": [
+            "person_a_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "relationships_person_b_id_people_id_fk": {
+          "name": "relationships_person_b_id_people_id_fk",
+          "tableFrom": "relationships",
+          "tableTo": "people",
+          "columnsFrom": [
+            "person_b_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "relationships_distinct_people_check": {
+          "name": "relationships_distinct_people_check",
+          "value": "\"relationships\".\"person_a_id\" <> \"relationships\".\"person_b_id\""
+        },
+        "relationships_type_fields_check": {
+          "name": "relationships_type_fields_check",
+          "value": "\n        (\"relationships\".\"type\" = 'PARENT_OF' AND \"relationships\".\"seniority\" = 'UNKNOWN' AND \"relationships\".\"married\" = false)\n        OR (\"relationships\".\"type\" = 'SPOUSE_OF' AND \"relationships\".\"seniority\" = 'UNKNOWN' AND \"relationships\".\"biological\" = false AND \"relationships\".\"biological_union_id\" IS NULL)\n        OR (\"relationships\".\"type\" = 'SIBLING_OF' AND \"relationships\".\"married\" = false AND \"relationships\".\"biological\" = false AND \"relationships\".\"biological_union_id\" IS NULL)\n      "
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.person_sex": {
+      "name": "person_sex",
+      "schema": "public",
+      "values": [
+        "male",
+        "female"
+      ]
+    },
+    "public.relationship_type": {
+      "name": "relationship_type",
+      "schema": "public",
+      "values": [
+        "PARENT_OF",
+        "SPOUSE_OF",
+        "SIBLING_OF"
+      ]
+    },
+    "public.sibling_seniority": {
+      "name": "sibling_seniority",
+      "schema": "public",
+      "values": [
+        "A_OLDER",
+        "B_OLDER",
+        "UNKNOWN"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

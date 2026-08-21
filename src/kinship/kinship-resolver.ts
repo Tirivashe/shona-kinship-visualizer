@@ -6,7 +6,9 @@ import {
   type ComposedKinshipResolution,
 } from "./kinship-composer";
 import {
+  advanceProgressiveKinship,
   fundamentalStepForClass,
+  progressiveStateForResolution,
   projectReciprocalClass,
 } from "./kin-class-algebra";
 import { terminalSiblingSeniority } from "./model";
@@ -148,15 +150,22 @@ const rules: KinRule[] = [
       path[0] === "F" &&
       path[1] === "Z" &&
       (path[2] === "S" || path[2] === "D"),
-    resolve: () =>
-      known(
-        "PATERNAL_AUNT_CHILD_TO_MUZUKURU",
-        "Muzukuru",
-        "Your Tete's child; both sons and daughters enter the Grandchild class.",
-        "MUZUKURU",
-      ),
+    resolve: (_path, context) =>
+      context.egoSex === "M"
+        ? known(
+            "PATERNAL_AUNT_CHILD_TO_MUZUKURU",
+            "Muzukuru",
+            "For a male Ego, a Tete's son or daughter enters the Grandchild class.",
+            "MUZUKURU",
+          )
+        : known(
+            "PATERNAL_AUNT_CHILD_TO_MWANA",
+            "Mwana",
+            "For a female Ego, a Tete's son or daughter enters the Child class.",
+            "CLASSIFICATORY_CHILD",
+          ),
     explanation:
-      "Tete is the Father-class exception: F.Z.(S|D) enters the Grandchild class for every Ego.",
+      "Tete's child is Ego-sex-conditioned: Muzukuru for a male Ego and Mwana for a female Ego.",
   },
   {
     id: "CLASSIFICATORY_PARENT_SPOUSE",
@@ -595,8 +604,133 @@ export class KinshipResolver {
     return resolution;
   }
 
-  private resolveTraversal(traversal: TraversalResult, context: Context) {
+  private resolveTraversal(
+    traversal: TraversalResult,
+    context: Context,
+  ): KinshipResolution & { priority: number } {
+    const resolution = attachCoreClassifications(
+      this.resolveTraversalByAlgebra(traversal, context),
+      traversal,
+      context,
+    );
+    const resolvedTraversal = resolution.traversal ?? traversal;
+    const existing = resolvedTraversal.nodeClassifications ?? [];
+    let nodeClassifications = [...existing];
+
+    // Exact cultural axioms remain authoritative at their terminal node, but
+    // their preceding nodes must still be classified. Build the trace from
+    // the immediate canonical prefix when the algebra did not already carry
+    // one forward for us.
+    if (nodeClassifications.length === 0) {
+      const canonicalSegments =
+        traversal.canonicalSegments ??
+        this.graph.describeCanonicalSegments(
+          traversal.personIds,
+          traversal.rawPath,
+        );
+      const finalSegment = canonicalSegments.at(-1);
+      if (canonicalSegments.length > 1 && finalSegment) {
+        const prefixRawPath = traversal.rawPath.slice(
+          0,
+          finalSegment.rawStartIndex,
+        );
+        const prefixPersonIds = traversal.personIds.slice(
+          0,
+          finalSegment.rawStartIndex + 1,
+        );
+        const prefixPerson = this.graph.getPerson(finalSegment.fromPersonId);
+        if (prefixPerson) {
+          const prefixTraversal: TraversalResult = {
+            personIds: prefixPersonIds,
+            rawPath: prefixRawPath,
+            canonicalPath: FamilyTreeGraph.canonicalize(prefixRawPath),
+            canonicalSegments: canonicalSegments.slice(0, -1),
+            generationDistance:
+              FamilyTreeGraph.generationDistance(prefixRawPath),
+            siblingSeniorities: this.graph.describeSiblingSeniorities(
+              prefixPersonIds,
+              prefixRawPath,
+            ),
+          };
+          const prefixContext: Context = {
+            egoId: context.egoId,
+            targetId: finalSegment.fromPersonId,
+            egoSex: context.egoSex,
+            targetSex: prefixPerson.sex,
+            relativeAge: this.graph.relativeAge(
+              context.egoId,
+              finalSegment.fromPersonId,
+            ),
+            siblingSeniorities: prefixTraversal.siblingSeniorities,
+            generationDistance: prefixTraversal.generationDistance,
+          };
+          nodeClassifications = [
+            ...(this.resolveTraversal(prefixTraversal, prefixContext).traversal
+              ?.nodeClassifications ?? []),
+          ];
+        }
+      }
+    }
+
+    if (!nodeClassifications.some((entry) => entry.personId === context.egoId)) {
+      nodeClassifications.unshift({
+        egoId: context.egoId,
+        personId: context.egoId,
+        canonicalPath: [],
+        status: "known",
+        title: "You",
+        kinClass: "SELF",
+        coreClassifications: [],
+        seniority: "same",
+        establishedBy: "SELF",
+      });
+    }
+
+    const targetClassification = {
+      egoId: context.egoId,
+      personId: context.targetId,
+      canonicalPath: [...traversal.canonicalPath],
+      status: resolution.status,
+      title: resolution.title,
+      kinClass: resolution.kinClass,
+      coreClassifications: [...(resolution.coreClassifications ?? [])],
+      seniority: resolution.seniority ?? context.relativeAge,
+      establishedBy: resolution.ruleId ?? "RELATIONSHIP_UNMAPPED",
+    };
+    const targetIndex = nodeClassifications.findIndex(
+      (entry) => entry.personId === context.targetId,
+    );
+    if (targetIndex >= 0) {
+      nodeClassifications[targetIndex] = targetClassification;
+    } else {
+      nodeClassifications.push(targetClassification);
+    }
+
+    return {
+      ...resolution,
+      traversal: {
+        ...resolvedTraversal,
+        nodeClassifications,
+      },
+    };
+  }
+
+  private resolveTraversalByAlgebra(
+    traversal: TraversalResult,
+    context: Context,
+  ): KinshipResolution & { priority: number } {
     const canonicalRule = this.bestRule(traversal.canonicalPath, context, 970);
+    const progressiveResolution = canonicalRule
+      ? undefined
+      : this.resolveProgressiveContinuation(traversal, context);
+
+    if (progressiveResolution) {
+      return {
+        ...progressiveResolution,
+        traversal: progressiveResolution.traversal ?? traversal,
+      };
+    }
+
     const grandparentAncestor = canonicalRule
       ? undefined
       : this.resolveGrandparentAncestor(traversal, context);
@@ -744,6 +878,107 @@ export class KinshipResolver {
   }
 
   /**
+   * Resolve the complete prefix first, then advance it by the final graph edge.
+   * Inductively, every longer traversal therefore continues the semantic state
+   * established by its left prefix and cannot be regrouped around a suffix.
+   */
+  private resolveProgressiveContinuation(
+    traversal: TraversalResult,
+    context: Context,
+  ):
+    | (ComposedKinshipResolution & { traversal: TraversalResult })
+    | undefined {
+    const canonicalSegments =
+      traversal.canonicalSegments ??
+      this.graph.describeCanonicalSegments(
+        traversal.personIds,
+        traversal.rawPath,
+      );
+    if (
+      canonicalSegments.length < 2 ||
+      !isConsanguineal(traversal.rawPath)
+    ) {
+      return undefined;
+    }
+
+    const finalSegment = canonicalSegments.at(-1);
+    if (!finalSegment) return undefined;
+    const { fromPersonId, toPersonId } = finalSegment;
+    const fromPerson = fromPersonId
+      ? this.graph.getPerson(fromPersonId)
+      : undefined;
+    const toPerson = toPersonId ? this.graph.getPerson(toPersonId) : undefined;
+    if (!fromPersonId || !toPersonId || !fromPerson || !toPerson) {
+      return undefined;
+    }
+
+    const prefixRawPath = traversal.rawPath.slice(
+      0,
+      finalSegment.rawStartIndex,
+    );
+    const prefixPersonIds = traversal.personIds.slice(
+      0,
+      finalSegment.rawStartIndex + 1,
+    );
+    const prefixTraversal: TraversalResult = {
+      personIds: prefixPersonIds,
+      rawPath: prefixRawPath,
+      canonicalPath: FamilyTreeGraph.canonicalize(prefixRawPath),
+      canonicalSegments: canonicalSegments.slice(0, -1),
+      generationDistance: FamilyTreeGraph.generationDistance(prefixRawPath),
+      siblingSeniorities: this.graph.describeSiblingSeniorities(
+        prefixPersonIds,
+        prefixRawPath,
+      ),
+    };
+    const prefixContext: Context = {
+      egoId: context.egoId,
+      targetId: fromPersonId,
+      egoSex: context.egoSex,
+      targetSex: fromPerson.sex,
+      relativeAge: this.graph.relativeAge(context.egoId, fromPersonId),
+      siblingSeniorities: prefixTraversal.siblingSeniorities,
+      generationDistance: prefixTraversal.generationDistance,
+    };
+    const prefixResolution: KinshipResolution & { priority: number } =
+      attachCoreClassifications(
+      this.resolveTraversal(prefixTraversal, prefixContext),
+      prefixTraversal,
+      prefixContext,
+      );
+    const state = progressiveStateForResolution(
+      prefixResolution,
+      prefixTraversal,
+      prefixContext,
+    );
+    if (!state) return undefined;
+
+    const advanced = advanceProgressiveKinship(state, {
+      step: finalSegment.step,
+      fromPersonId,
+      toPersonId,
+      targetSex: toPerson.sex,
+      egoRelativeAge: context.relativeAge,
+      relativeAge: this.graph.relativeAge(fromPersonId, toPersonId),
+    });
+    if (!advanced) return undefined;
+    const advancedReducedPath = advanced.reducedPath;
+
+    return {
+      ...advanced,
+      reducedPath:
+        advancedReducedPath && advancedReducedPath.length > 0
+          ? [...advancedReducedPath]
+          : [...traversal.canonicalPath],
+      traversal: {
+        ...traversal,
+        nodeClassifications:
+          prefixResolution.traversal?.nodeClassifications ?? [],
+      },
+    };
+  }
+
+  /**
    * Continue a path from an already-resolved semantic class. The prefix may
    * have been reached through any number of genealogical or affinal steps;
    * replacing it by its fundamental class edge prevents full-path maps and
@@ -804,7 +1039,7 @@ export class KinshipResolver {
       derivation: [
         ...(prefix.derivation ?? []),
         ...(projected.derivation ?? []),
-        `SEMANTIC_CLASS_CONTINUATION: ${prefix.kinClass} was compacted to ${fundamentalStep}; the ordinary algebra resolved ${compactedTraversal.canonicalPath.join(".")}.`,
+        `SEMANTIC_CLASS_CONTINUATION: ${prefix.kinClass} was compacted to ${fundamentalStep}; the ordinary algebra resolved ${(compactedTraversal ?? compacted).canonicalPath.join(".")}.`,
       ],
     };
   }

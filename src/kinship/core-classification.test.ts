@@ -250,8 +250,15 @@ describe("primary Shona kinship hierarchy", () => {
         resolver,
         "ego",
         targetId,
-        "Muzukuru",
-        "PATRILINEAL_GRANDCHILD",
+        "Mwana",
+        "PATRILINEAL_CHILD",
+      );
+      expectCore(
+        resolver,
+        targetId,
+        "ego",
+        "Mainini",
+        "MATRILINEAL_MOTHER",
       );
     }
   });

@@ -454,11 +454,23 @@ describe("three-axis Shona algebra", () => {
   );
 
   it.each([
-    ["grandmothers-brother", "M", "B", "Sekuru"],
-    ["grandmothers-sister", "F", "Z", "Mbuya"],
+    [
+      "grandmothers-brother",
+      "M",
+      "B",
+      "Sekuru",
+      "PROGRESSIVE_GRANDMOTHERS_BROTHER",
+    ],
+    [
+      "grandmothers-sister",
+      "F",
+      "Z",
+      "Mbuya",
+      "GRANDPARENT_GENERATION_FEMALE_COLLATERAL",
+    ],
   ] as const)(
     "classifies a grandmother's sibling %s in ego's grandparent generation",
-    (targetId, targetSex, siblingStep, expectedTitle) => {
+    (targetId, targetSex, siblingStep, expectedTitle, expectedRuleId) => {
       const people = [
         person("great-grandfather", "M"),
         person("grandmother", "F", { fatherId: "great-grandfather" }),
@@ -473,11 +485,7 @@ describe("three-axis Shona algebra", () => {
       expect(result.traversal?.generationDistance).toBe(2);
       expect(result.status).toBe("known");
       expect(result.title).toBe(expectedTitle);
-      expect(result.ruleId).toBe(
-        targetSex === "M"
-          ? "GRANDPARENT_GENERATION_MALE_COLLATERAL"
-          : "GRANDPARENT_GENERATION_FEMALE_COLLATERAL",
-      );
+      expect(result.ruleId).toBe(expectedRuleId);
     },
   );
 
@@ -540,7 +548,7 @@ describe("three-axis Shona algebra", () => {
     ["aunts-son", "M", "S"],
     ["aunts-daughter", "F", "D"],
   ] as const)(
-    "promotes a female ego's father's sister's child %s to Muzukuru",
+    "classifies a female ego's father's sister's child %s as Mwana",
     (targetId, targetSex, childStep) => {
       const people = [
         person("paternal-grandfather", "M"),
@@ -557,9 +565,13 @@ describe("three-axis Shona algebra", () => {
       expect(result.traversal?.rawPath).toEqual(["F", "F", "D", childStep]);
       expect(result.traversal?.canonicalPath).toEqual(["F", "Z", childStep]);
       expect(result.status).toBe("known");
-      expect(result.title).toBe("Muzukuru");
-      expect(result.kinClass).toBe("MUZUKURU");
-      expect(result.ruleId).toBe("PATERNAL_AUNT_CHILD_TO_MUZUKURU");
+      expect(result.title).toBe("Mwana");
+      expect(result.kinClass).toBe("CLASSIFICATORY_CHILD");
+      expect(result.ruleId).toBe("PATERNAL_AUNT_CHILD_TO_MWANA");
+
+      const reciprocal = resolve(people, { egoId: targetId, targetId: "ego" });
+      expect(reciprocal.title).toBe("Mainini");
+      expect(reciprocal.kinClass).toBe("CLASSIFICATORY_MOTHER");
     },
   );
 

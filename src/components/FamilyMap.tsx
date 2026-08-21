@@ -13,20 +13,28 @@ import {
 } from "@xyflow/react";
 
 import dagre from "@dagrejs/dagre";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  createInMemoryFamilyDatabase,
+  connectionsForPerson,
+  type FamilySnapshot,
   type NewCharacterInput,
 } from "@/data/in-memory-family-database";
+import {
+  addFamilyPerson,
+  deleteFamilyPerson,
+  updateFamilyPerson,
+} from "@/data/family-api-client";
 
 import {
   createKinshipSession,
   type KinshipSession,
 } from "@/kinship/resolve";
+import { errorMessage } from "@/lib/error-message";
 import type { Person, Relationship } from "@/types/family";
 
 import { CharacterDialog } from "./AddCharacterDialog";
+import { ErrorNotificationToast } from "./ErrorNotificationToast";
 import {
   FamilyUnionNode,
   type FamilyUnionNodeData,
@@ -120,6 +128,7 @@ function buildFlowElements(
   relationships: Relationship[],
   onEdit: (personId: string) => void,
   onDelete: (personId: string) => void,
+  deletingPersonId: string | undefined,
   kinshipSession: KinshipSession,
 ): {
   nodes: Node[];
@@ -144,6 +153,8 @@ function buildFlowElements(
       photoUrl: person.photoUrl,
       onEdit: () => onEdit(person.id),
       onDelete: () => onDelete(person.id),
+      actionsDisabled: deletingPersonId !== undefined,
+      isDeleting: deletingPersonId === person.id,
     };
 
     graph.setNode(person.id, {
@@ -312,6 +323,7 @@ interface FlowCanvasProps {
   relationships: Relationship[];
   onEdit: (personId: string) => void;
   onDelete: (personId: string) => void;
+  deletingPersonId?: string;
 }
 
 function FlowCanvas({
@@ -320,6 +332,7 @@ function FlowCanvas({
   relationships,
   onEdit,
   onDelete,
+  deletingPersonId,
 }: FlowCanvasProps) {
   const kinshipSession = useMemo(
     () => createKinshipSession(people, relationships),
@@ -336,6 +349,7 @@ function FlowCanvas({
       relationships,
       onEdit,
       onDelete,
+      deletingPersonId,
       kinshipSession,
     ),
   );
@@ -351,6 +365,7 @@ function FlowCanvas({
       relationships,
       onEdit,
       onDelete,
+      deletingPersonId,
       kinshipSession,
     );
 
@@ -371,6 +386,7 @@ function FlowCanvas({
     setEdges(nextElements.edges);
   }, [
     egoId,
+    deletingPersonId,
     kinshipSession,
     onDelete,
     onEdit,
@@ -404,10 +420,19 @@ function FlowCanvas({
   );
 }
 
-export default function FamilyMap() {
-  const [database] = useState(() => createInMemoryFamilyDatabase());
-  const [family, setFamily] = useState(() => database.snapshot());
+interface FamilyMapProps {
+  initialFamily: FamilySnapshot;
+}
+
+export default function FamilyMap({ initialFamily }: FamilyMapProps) {
+  const [family, setFamily] = useState(initialFamily);
   const [egoId, setEgoId] = useState(family.people[0]?.id ?? "");
+  const [deletingPersonId, setDeletingPersonId] = useState<string>();
+  const [errorNotification, setErrorNotification] = useState<{
+    id: number;
+    message: string;
+  }>();
+  const nextNotificationId = useRef(0);
   const [characterDialog, setCharacterDialog] = useState<
     { mode: "add" } | { mode: "edit"; personId: string }
   >();
@@ -416,8 +441,25 @@ export default function FamilyMap() {
     setCharacterDialog({ mode: "edit", personId });
   }, []);
 
+  const showErrorNotification = useCallback((message: string) => {
+    nextNotificationId.current += 1;
+    setErrorNotification({ id: nextNotificationId.current, message });
+  }, []);
+
+  useEffect(() => {
+    if (!errorNotification) return;
+    const notificationId = errorNotification.id;
+    const timeout = window.setTimeout(() => {
+      setErrorNotification((current) =>
+        current?.id === notificationId ? undefined : current,
+      );
+    }, 8_000);
+    return () => window.clearTimeout(timeout);
+  }, [errorNotification]);
+
   const deleteCharacter = useCallback(
-    (personId: string) => {
+    async (personId: string) => {
+      if (deletingPersonId) return;
       const person = family.people.find((candidate) => candidate.id === personId);
       if (!person) return;
 
@@ -426,28 +468,36 @@ export default function FamilyMap() {
       );
       if (!confirmed) return;
 
-      database.deleteCharacter(personId);
-      const nextFamily = database.snapshot();
-      setFamily(nextFamily);
-      setEgoId((current) =>
-        current === personId ? (nextFamily.people[0]?.id ?? "") : current,
-      );
-      setCharacterDialog((current) =>
-        current?.mode === "edit" && current.personId === personId
-          ? undefined
-          : current,
-      );
+      setDeletingPersonId(personId);
+      try {
+        const { family: nextFamily } = await deleteFamilyPerson(personId);
+        setFamily(nextFamily);
+        setEgoId((current) =>
+          current === personId ? (nextFamily.people[0]?.id ?? "") : current,
+        );
+        setCharacterDialog((current) =>
+          current?.mode === "edit" && current.personId === personId
+            ? undefined
+            : current,
+        );
+      } catch (cause) {
+        showErrorNotification(
+          errorMessage(cause, "The character could not be deleted."),
+        );
+      } finally {
+        setDeletingPersonId(undefined);
+      }
     },
-    [database, family.people],
+    [deletingPersonId, family.people, showErrorNotification],
   );
 
-  function saveCharacter(input: NewCharacterInput) {
-    const person =
+  async function saveCharacter(input: NewCharacterInput) {
+    const result =
       characterDialog?.mode === "edit"
-        ? database.updateCharacter(characterDialog.personId, input)
-        : database.addCharacter(input);
-    setFamily(database.snapshot());
-    setEgoId((current) => current || person.id);
+        ? await updateFamilyPerson(characterDialog.personId, input)
+        : await addFamilyPerson(input);
+    setFamily(result.family);
+    setEgoId((current) => current || result.person.id);
     setCharacterDialog(undefined);
   }
 
@@ -520,6 +570,7 @@ export default function FamilyMap() {
           relationships={family.relationships}
           onEdit={editCharacter}
           onDelete={deleteCharacter}
+          deletingPersonId={deletingPersonId}
         />
       </div>
 
@@ -527,8 +578,9 @@ export default function FamilyMap() {
         type="button"
         aria-label="Add family member"
         title="Add family member"
+        disabled={deletingPersonId !== undefined}
         onClick={() => setCharacterDialog({ mode: "add" })}
-        className="fixed right-6 bottom-6 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-slate-950 text-3xl font-light text-white shadow-lg transition hover:scale-105 hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-slate-950"
+        className="fixed right-6 bottom-6 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-slate-950 text-3xl font-light text-white shadow-lg transition hover:scale-105 hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-slate-950 disabled:cursor-wait disabled:bg-slate-400"
       >
         <span aria-hidden="true">+</span>
       </button>
@@ -542,10 +594,22 @@ export default function FamilyMap() {
               : family.people
           }
           initialConnections={
-            editingPerson ? database.connectionsFor(editingPerson.id) : []
+            editingPerson
+              ? connectionsForPerson(
+                  family.people,
+                  family.relationships,
+                  editingPerson.id,
+                )
+              : []
           }
           onSave={saveCharacter}
           onClose={() => setCharacterDialog(undefined)}
+        />
+      )}
+      {errorNotification && (
+        <ErrorNotificationToast
+          message={errorNotification.message}
+          onDismiss={() => setErrorNotification(undefined)}
         />
       )}
     </div>

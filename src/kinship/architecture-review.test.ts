@@ -169,6 +169,134 @@ describe("architecture review regressions", () => {
     }
   });
 
+  it("reduces M.M.B.D progressively and preserves every prefix class", () => {
+    const people = [
+      person("maternal-great-grandfather", "M"),
+      person("maternal-grandmother", "F", {
+        fatherId: "maternal-great-grandfather",
+      }),
+      person("grandmothers-brother", "M", {
+        fatherId: "maternal-great-grandfather",
+      }),
+      person("grandmothers-brothers-daughter", "F", {
+        fatherId: "grandmothers-brother",
+      }),
+      person("grandmothers-brothers-daughters-daughter", "F", {
+        motherId: "grandmothers-brothers-daughter",
+      }),
+      person("grandmothers-brothers-son", "M", {
+        fatherId: "grandmothers-brother",
+      }),
+      person("mother", "F", { motherId: "maternal-grandmother" }),
+      person("male-ego", "M", { motherId: "mother" }),
+      person("female-ego", "F", { motherId: "mother" }),
+    ];
+
+    for (const egoId of ["male-ego", "female-ego"]) {
+      for (const [targetId, expectedTitle, expectedRuleId] of [
+        ["mother", "Mai", "BASIC_M"],
+        [
+          "maternal-grandmother",
+          "Mbuya",
+          "PROGRESSIVE_MOTHER_TO_GRANDMOTHER",
+        ],
+        [
+          "grandmothers-brother",
+          "Sekuru",
+          "PROGRESSIVE_GRANDMOTHERS_BROTHER",
+        ],
+        [
+          "grandmothers-brothers-daughter",
+          "Mainini",
+          "PROGRESSIVE_MATRILATERAL_UNCLE_DAUGHTER",
+        ],
+        [
+          "grandmothers-brothers-son",
+          "Sekuru",
+          "PROGRESSIVE_MATRILATERAL_UNCLE_SON",
+        ],
+      ] as const) {
+        const result = resolve(people, egoId, targetId);
+        expect(result.title).toBe(expectedTitle);
+        expect(result.ruleId).toBe(expectedRuleId);
+      }
+
+      const daughter = resolve(
+        people,
+        egoId,
+        "grandmothers-brothers-daughter",
+      );
+      expect(daughter.traversal?.canonicalPath).toEqual([
+        "M",
+        "M",
+        "B",
+        "D",
+      ]);
+      expect(daughter.kinClass).toBe("CLASSIFICATORY_MOTHER");
+      expect(daughter.coreClassifications).toEqual(["MATRILINEAL_MOTHER"]);
+      expect(daughter.derivation).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("PROGRESSIVE_MOTHER_TO_GRANDMOTHER"),
+          expect.stringContaining("PROGRESSIVE_GRANDMOTHERS_BROTHER"),
+          expect.stringContaining(
+            "PROGRESSIVE_MATRILATERAL_UNCLE_DAUGHTER",
+          ),
+        ]),
+      );
+      expect(daughter.derivation).not.toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("PARENT_CLASS_TO_GRANDPARENT"),
+        ]),
+      );
+
+      if (egoId === "male-ego") {
+        const sibling = resolve(
+          people,
+          egoId,
+          "grandmothers-brothers-daughters-daughter",
+        );
+        expect(sibling.traversal?.canonicalPath).toEqual([
+          "M",
+          "M",
+          "B",
+          "D",
+          "D",
+        ]);
+        expect(sibling.title).toBe("Hanzvadzi");
+        expect(sibling.kinClass).toBe("CROSS_SEX_SIBLING");
+        expect(sibling.coreClassifications).toEqual([
+          "MATRILINEAL_SIBLING",
+        ]);
+        expect(sibling.ruleId).toBe(
+          "PROGRESSIVE_PARENT_CLASS_CHILD_TO_HANZVADZI",
+        );
+        expect(
+          sibling.traversal?.nodeClassifications?.map(
+            ({ personId, title }) => [personId, title],
+          ),
+        ).toEqual([
+          ["male-ego", "You"],
+          ["mother", "Mai"],
+          ["maternal-grandmother", "Mbuya"],
+          ["grandmothers-brother", "Sekuru"],
+          ["grandmothers-brothers-daughter", "Mainini"],
+          ["grandmothers-brothers-daughters-daughter", "Hanzvadzi"],
+        ]);
+      }
+
+      const reciprocal = resolve(
+        people,
+        "grandmothers-brothers-daughter",
+        egoId,
+      );
+      expect(reciprocal.title).toBe("Muzukuru");
+      expect(reciprocal.kinClass).toBe("MUZUKURU");
+      expect(reciprocal.coreClassifications).toEqual([
+        "PATRILINEAL_GRANDCHILD",
+      ]);
+    }
+  });
+
   it("resolves either grandfather's sister as Tete for both Ego sexes", () => {
     const people = [
       person("paternal-great-grandfather", "M"),
@@ -213,6 +341,83 @@ describe("architecture review regressions", () => {
         expect(reciprocal.kinClass).toBe("MUZUKURU");
       }
     }
+  });
+
+  it("conditions every Tete child's class and reciprocal on Ego sex", () => {
+    const people = [
+      person("paternal-great-grandfather", "M"),
+      person("paternal-grandfather", "M", {
+        fatherId: "paternal-great-grandfather",
+      }),
+      person("extended-tete", "F", {
+        fatherId: "paternal-great-grandfather",
+      }),
+      person("father", "M", { fatherId: "paternal-grandfather" }),
+      person("direct-tete", "F", { fatherId: "paternal-grandfather" }),
+      person("male-ego", "M", { fatherId: "father" }),
+      person("female-ego", "F", { fatherId: "father" }),
+      person("direct-tetes-son", "M", { motherId: "direct-tete" }),
+      person("direct-tetes-daughter", "F", { motherId: "direct-tete" }),
+      person("extended-tetes-son", "M", { motherId: "extended-tete" }),
+      person("extended-tetes-daughter", "F", {
+        motherId: "extended-tete",
+      }),
+    ];
+
+    for (const [egoId, expectedTitle, expectedClass, reciprocalTitle] of [
+      ["male-ego", "Muzukuru", "MUZUKURU", "Sekuru"],
+      ["female-ego", "Mwana", "CLASSIFICATORY_CHILD", "Mainini"],
+    ] as const) {
+      for (const [targetId, direct] of [
+        ["direct-tetes-son", true],
+        ["direct-tetes-daughter", true],
+        ["extended-tetes-son", false],
+        ["extended-tetes-daughter", false],
+      ] as const) {
+        const forward = resolve(people, egoId, targetId);
+        expect(forward.title).toBe(expectedTitle);
+        expect(forward.kinClass).toBe(expectedClass);
+        expect(forward.ruleId).toBe(
+          direct
+            ? egoId === "male-ego"
+              ? "PATERNAL_AUNT_CHILD_TO_MUZUKURU"
+              : "PATERNAL_AUNT_CHILD_TO_MWANA"
+            : egoId === "male-ego"
+              ? "PROGRESSIVE_TETE_CHILD_TO_MUZUKURU"
+              : "PROGRESSIVE_TETE_CHILD_TO_MWANA",
+        );
+
+        const reciprocal = resolve(people, targetId, egoId);
+        expect(reciprocal.title).toBe(reciprocalTitle);
+        expect(reciprocal.kinClass).toBe(
+          egoId === "male-ego"
+            ? "GRANDFATHER"
+            : "CLASSIFICATORY_MOTHER",
+        );
+      }
+    }
+  });
+
+  it("resolves a female ego's father's sister's daughter's son as Muzukuru", () => {
+    const people = [
+      person("paternal-grandfather", "M"),
+      person("father", "M", { fatherId: "paternal-grandfather" }),
+      person("tete", "F", { fatherId: "paternal-grandfather" }),
+      person("female-ego", "F", { fatherId: "father" }),
+      person("tetes-daughter", "F", { motherId: "tete" }),
+      person("tetes-daughters-son", "M", { motherId: "tetes-daughter" }),
+    ];
+
+    const mwana = resolve(people, "female-ego", "tetes-daughter");
+    expect(mwana.traversal?.canonicalPath).toEqual(["F", "Z", "D"]);
+    expect(mwana.title).toBe("Mwana");
+    expect(mwana.kinClass).toBe("CLASSIFICATORY_CHILD");
+
+    const result = resolve(people, "female-ego", "tetes-daughters-son");
+    expect(result.traversal?.canonicalPath).toEqual(["F", "Z", "D", "S"]);
+    expect(result.title).toBe("Muzukuru");
+    expect(result.kinClass).toBe("MUZUKURU");
+    expect(result.ruleId).toBe("MWANA_CHILD_TO_MUZUKURU");
   });
 
   it("resolves either grandfather's brother as Sekuru for both Ego sexes", () => {
@@ -291,10 +496,10 @@ describe("architecture review regressions", () => {
     expect(husbandPerspective.kinClass).toBe("CROSS_SEX_SIBLING");
     expect(husbandPerspective.derivation).toEqual(
       expect.arrayContaining([
+        expect.stringContaining("MATRILATERAL_UNCLE_DAUGHTER"),
         expect.stringContaining(
-          "M_MATRILATERAL_UNCLE_DAUGHTER_ELEVATION",
+          "PROGRESSIVE_PARENT_CLASS_CHILD_TO_HANZVADZI",
         ),
-        expect.stringContaining("P_CLASSIFICATORY_PARENT_CHILD"),
       ]),
     );
 
